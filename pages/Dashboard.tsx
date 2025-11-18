@@ -8,7 +8,7 @@ import { PaymentMethod } from '../types';
 const SummaryCard: React.FC<{ title: string; amount: number; colorClass: string }> = ({ title, amount, colorClass }) => (
     <Card className="flex-1 text-center">
         <p className="text-sm text-gray-500">{title}</p>
-        <p className={`text-2xl font-bold ${colorClass}`}>{amount.toLocaleString('th-TH')} ฿</p>
+        <p className={`text-lg font-bold ${colorClass}`}>{amount.toLocaleString('th-TH')} ฿</p>
     </Card>
 );
 
