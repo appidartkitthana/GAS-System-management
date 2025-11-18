@@ -12,7 +12,15 @@ interface AppContextType {
   getCustomerById: (id: string) => Customer | undefined;
   reportDate: Date;
   setReportDate: (date: Date) => void;
-  reportSummary: { income: number; expense: number; profit: number; cashIncome: number; transferIncome: number; creditIncome: number; };
+  reportSummary: {
+    income: number;
+    expense: number;
+    profit: number;
+    cashIncome: number;
+    transferIncome: number;
+    creditIncome: number;
+    salesByCustomer: { customerId: string; customerName: string; totalAmount: number }[];
+  };
   totalSummary: { income: number; expense: number; profit: number };
   
   // CRUD operations
@@ -284,8 +292,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const creditIncome = dateSales.filter(s => s.payment_method === PaymentMethod.CREDIT).reduce((acc, s) => acc + s.total_amount, 0);
     
     const expense = expenses.filter(e => isSameDay(e.date, reportDate)).reduce((acc, e) => acc + e.amount, 0);
-    return { income, expense, profit: income - expense, cashIncome, transferIncome, creditIncome };
-  }, [sales, expenses, reportDate]);
+    
+    const salesByCustomerMap = dateSales.reduce((acc, sale) => {
+        const customer = getCustomerById(sale.customer_id);
+        const customerName = customer ? `${customer.name} (${customer.branch})` : 'ลูกค้าทั่วไป';
+        
+        const existingEntry = acc.get(sale.customer_id);
+        
+        if (existingEntry) {
+            existingEntry.totalAmount += sale.total_amount;
+        } else {
+            acc.set(sale.customer_id, {
+                customerId: sale.customer_id,
+                customerName: customerName,
+                totalAmount: sale.total_amount,
+            });
+        }
+        return acc;
+    }, new Map<string, { customerId: string; customerName: string; totalAmount: number }>());
+
+    const salesByCustomer = Array.from(salesByCustomerMap.values())
+        .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    return { income, expense, profit: income - expense, cashIncome, transferIncome, creditIncome, salesByCustomer };
+  }, [sales, expenses, reportDate, customers]);
 
   const totalSummary = useMemo(() => {
     const income = sales.reduce((acc, s) => acc + s.total_amount, 0);
