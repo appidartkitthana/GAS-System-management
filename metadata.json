@@ -1,0 +1,5 @@
+{
+  "name": "LPG Gas Store Manager",
+  "description": "An application to manage sales, expenses, customers, and inventory for an LPG gas store. It features a dashboard with daily summaries, transaction logs, customer management with specific pricing, and detailed stock tracking.",
+  "requestFramePermissions": []
+}

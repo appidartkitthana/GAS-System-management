@@ -1,0 +1,155 @@
+import React, { useState, useMemo } from 'react';
+import Header from '../components/Header';
+import Card from '../components/Card';
+import { useAppContext } from '../context/AppContext';
+import { Customer, Brand, Size } from '../types';
+import PlusCircleIcon from '../components/icons/PlusCircleIcon';
+import Modal from '../components/Modal';
+import PencilIcon from '../components/icons/PencilIcon';
+import TrashIcon from '../components/icons/TrashIcon';
+
+const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Customer | Omit<Customer, 'id'>) => void; onClose: () => void; }> = ({ customer, onSave, onClose }) => {
+    const [formData, setFormData] = useState({
+        name: customer?.name || '',
+        branch: customer?.branch || '',
+        price: customer?.price.toString() || '',
+        borrowed_tanks_quantity: customer?.borrowed_tanks_quantity.toString() || '0',
+        tank_brand: customer?.tank_brand || Brand.PTT,
+        tank_size: customer?.tank_size || Size.S48,
+        address: customer?.address || '',
+        tax_id: customer?.tax_id || '',
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const submissionData = {
+            ...customer,
+            ...formData,
+            price: parseFloat(formData.price) || 0,
+            borrowed_tanks_quantity: parseInt(formData.borrowed_tanks_quantity, 10) || 0,
+        };
+        onSave(submissionData as Customer | Omit<Customer, 'id'>);
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div className="space-y-4">
+                <input name="name" value={formData.name} onChange={handleChange} placeholder="ชื่อลูกค้า" className="w-full p-2 border rounded" required />
+                <input name="branch" value={formData.branch} onChange={handleChange} placeholder="สาขา" className="w-full p-2 border rounded" required />
+                <textarea name="address" value={formData.address} onChange={handleChange} placeholder="ที่อยู่ (สำหรับใบกำกับภาษี)" className="w-full p-2 border rounded" rows={3}></textarea>
+                <input name="tax_id" value={formData.tax_id} onChange={handleChange} placeholder="เลขประจำตัวผู้เสียภาษี" className="w-full p-2 border rounded" />
+                <input name="price" value={formData.price} onChange={handleChange} placeholder="ราคา" type="number" className="w-full p-2 border rounded" required />
+                <select name="tank_brand" value={formData.tank_brand} onChange={handleChange} className="w-full p-2 border rounded">
+                    {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <select name="tank_size" value={formData.tank_size} onChange={handleChange} className="w-full p-2 border rounded">
+                    {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <input name="borrowed_tanks_quantity" value={formData.borrowed_tanks_quantity} onChange={handleChange} placeholder="จำนวนถังยืม" type="number" className="w-full p-2 border rounded" />
+            </div>
+            <div className="flex justify-end space-x-2 mt-6">
+                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">ยกเลิก</button>
+                <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
+            </div>
+        </form>
+    )
+}
+
+
+const Customers: React.FC = () => {
+    const { customers, addCustomer, updateCustomer, deleteCustomer } = useAppContext();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const handleOpenModal = (customer: Customer | null = null) => {
+        setEditingCustomer(customer);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setEditingCustomer(null);
+        setIsModalOpen(false);
+    };
+
+    const handleSave = async (data: Customer | Omit<Customer, 'id'>) => {
+        if ('id' in data) {
+            await updateCustomer(data as Customer);
+        } else {
+            await addCustomer(data as Omit<Customer, 'id'>);
+        }
+        handleCloseModal();
+    }
+
+    const filteredCustomers = useMemo(() => {
+        if (!searchQuery.trim()) {
+            return customers;
+        }
+        const lowercasedQuery = searchQuery.toLowerCase();
+        return customers.filter(customer =>
+            customer.name.toLowerCase().includes(lowercasedQuery) ||
+            customer.branch.toLowerCase().includes(lowercasedQuery)
+        );
+    }, [customers, searchQuery]);
+
+  return (
+    <div>
+       <Header title="ลูกค้า">
+        <button onClick={() => handleOpenModal()} className="text-orange-500 hover:text-orange-600">
+            <PlusCircleIcon />
+        </button>
+      </Header>
+
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="ค้นหาลูกค้า (ชื่อ หรือ สาขา)..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full p-3 border border-gray-300 rounded-lg bg-white/80 shadow-inner focus:ring-2 focus:ring-orange-400 focus:outline-none transition-shadow"
+          aria-label="Search customers"
+        />
+      </div>
+
+      <div className="space-y-3">
+        {filteredCustomers.length > 0 ? (
+          filteredCustomers.map((customer: Customer) => (
+            <Card key={customer.id}>
+                <div className="pr-16">
+                    <h3 className="font-bold text-lg text-sky-700">{customer.name}</h3>
+                    <p className="text-gray-600">{customer.branch}</p>
+                    {customer.address && <p className="text-xs text-gray-500 mt-1">{customer.address}</p>}
+                    <div className="mt-2 pt-2 border-t border-gray-200 text-sm space-y-1">
+                        <p><span className="font-semibold text-gray-500">ถัง:</span> {customer.tank_brand} {customer.tank_size}</p>
+                        <p><span className="font-semibold text-gray-500">ราคา:</span> {customer.price.toLocaleString('th-TH')} ฿</p>
+                         {customer.tax_id && <p><span className="font-semibold text-gray-500">เลขผู้เสียภาษี:</span> {customer.tax_id}</p>}
+                        {customer.borrowed_tanks_quantity > 0 && (
+                             <p><span className="font-semibold text-gray-500">ถังยืม:</span> {customer.borrowed_tanks_quantity} ถัง</p>
+                        )}
+                    </div>
+                </div>
+                 <div className="absolute top-3 right-3 flex space-x-2">
+                    <button onClick={() => handleOpenModal(customer)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
+                    <button onClick={() => deleteCustomer(customer.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
+                </div>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <p className="text-center text-gray-500">ไม่พบลูกค้าที่ตรงกับการค้นหา</p>
+          </Card>
+        )}
+      </div>
+      <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingCustomer ? 'แก้ไขข้อมูลลูกค้า' : 'เพิ่มลูกค้าใหม่'}>
+        <CustomerForm customer={editingCustomer} onSave={handleSave} onClose={handleCloseModal} />
+      </Modal>
+    </div>
+  );
+};
+
+export default Customers;
