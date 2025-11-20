@@ -1,7 +1,8 @@
+
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, ExpenseType, Brand, Size, PaymentMethod } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
-import { formatSupabaseError } from '../lib/utils';
+import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 
 interface AppContextType {
   loading: boolean;
@@ -12,7 +13,9 @@ interface AppContextType {
   getCustomerById: (id: string) => Customer | undefined;
   reportDate: Date;
   setReportDate: (date: Date) => void;
-  reportSummary: {
+  
+  // Summaries
+  dailySummary: {
     income: number;
     expense: number;
     profit: number;
@@ -21,8 +24,17 @@ interface AppContextType {
     creditIncome: number;
     salesByCustomer: { customerId: string; customerName: string; totalAmount: number }[];
   };
-  totalSummary: { income: number; expense: number; profit: number };
-  
+  monthlySummary: {
+    income: number;
+    expense: number;
+    profit: number;
+    customerStats: { id: string; name: string; branch: string; tanks: number; total: number; profit: number }[];
+    gasReturnKg: number;
+    gasReturnValue: number;
+    refillStats: { size: string; count: number; cost: number }[];
+    expenseBreakdown: { type: string; count: number; totalAmount: number; totalGasQty: number }[];
+  };
+
   // CRUD operations
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<void>;
   updateCustomer: (customer: Customer) => Promise<void>;
@@ -67,7 +79,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (expensesRes.error) throw expensesRes.error;
         if (inventoryRes.error) throw inventoryRes.error;
 
-
         if (customersRes.data) setCustomers(customersRes.data);
         if (salesRes.data) setSales(salesRes.data);
         if (expensesRes.data) setExpenses(expensesRes.data);
@@ -82,11 +93,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetchData();
   }, []);
 
-
   const getCustomerById = (id: string) => customers.find(c => c.id === id);
 
   // --- Inventory Helpers ---
+  
+  // Helper to find cost price for a tank
+  const getStandardCost = (brand: Brand, size: Size): number => {
+      const item = inventory.find(i => i.tank_brand === brand && i.tank_size === size);
+      return item?.cost_price || 0;
+  }
+
   const updateInventoryCount = async (brand: Brand, size: Size, quantityChange: number) => {
+    // Only update GAS inventory
     const item = inventory.find(i => i.tank_brand === brand && i.tank_size === size);
     if (!item) return;
 
@@ -98,14 +116,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .select()
       .single();
 
-    if (error) {
-      console.error("Failed to update inventory", error);
-      alert(`เกิดข้อผิดพลาดในการอัปเดตสต็อก: ${formatSupabaseError(error)}`);
-    } else {
+    if (!error && updatedItem) {
       setInventory(prev => prev.map(i => i.id === item.id ? updatedItem : i));
     }
   };
 
+  // Sync Borrowed Tanks to Inventory "On Loan"
+  const syncInventoryLoans = async (oldBorrowed: BorrowedTank[] | undefined, newBorrowed: BorrowedTank[]) => {
+      const changes: { brand: Brand, size: Size, delta: number }[] = [];
+
+      // Subtract old
+      oldBorrowed?.forEach(b => {
+          changes.push({ brand: b.brand, size: b.size, delta: -b.quantity });
+      });
+      // Add new
+      newBorrowed.forEach(b => {
+          changes.push({ brand: b.brand, size: b.size, delta: b.quantity });
+      });
+
+      // Consolidate changes
+      const consolidated = changes.reduce((acc, curr) => {
+          const key = `${curr.brand}-${curr.size}`;
+          if (!acc[key]) acc[key] = { brand: curr.brand, size: curr.size, delta: 0 };
+          acc[key].delta += curr.delta;
+          return acc;
+      }, {} as Record<string, { brand: Brand, size: Size, delta: number }>);
+
+      for (const change of Object.values(consolidated)) {
+          if (change.delta === 0) continue;
+          const item = inventory.find(i => i.tank_brand === change.brand && i.tank_size === change.size);
+          if (item) {
+             const newLoan = (item.on_loan || 0) + change.delta;
+             const { data, error } = await supabaseClient.from('inventory').update({ on_loan: newLoan }).eq('id', item.id).select().single();
+             if (!error && data) {
+                 setInventory(prev => prev.map(i => i.id === item.id ? data : i));
+             }
+          }
+      }
+  };
 
   // --- CRUD Functions ---
 
@@ -113,40 +161,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCustomer = async (data: Omit<Customer, 'id'>) => {
     const { data: newCustomer, error } = await supabaseClient.from('customers').insert(data).select().single();
     if (error) {
-      console.error("Error adding customer:", error);
-      alert(`เกิดข้อผิดพลาดในการเพิ่มลูกค้า: ${formatSupabaseError(error)}`);
+      alert(`Error adding customer: ${formatSupabaseError(error)}`);
     } else if (newCustomer) {
       setCustomers(prev => [newCustomer, ...prev]);
+      if (newCustomer.borrowed_tanks) {
+          await syncInventoryLoans([], newCustomer.borrowed_tanks);
+      }
     }
   };
   const updateCustomer = async (data: Customer) => {
+    const oldCustomer = customers.find(c => c.id === data.id);
     const { id, created_at, ...updateData } = data;
     const { data: updatedCustomer, error } = await supabaseClient.from('customers').update(updateData).eq('id', id).select().single();
     if (error) {
-      console.error("Error updating customer:", error);
-      alert(`เกิดข้อผิดพลาดในการแก้ไขลูกค้า: ${formatSupabaseError(error)}`);
+      alert(`Error updating customer: ${formatSupabaseError(error)}`);
     } else if (updatedCustomer) {
       setCustomers(prev => prev.map(c => c.id === data.id ? updatedCustomer : c));
+      await syncInventoryLoans(oldCustomer?.borrowed_tanks, updatedCustomer.borrowed_tanks || []);
     }
   };
   const deleteCustomer = async (id: string) => {
+    // Check if customer has sales before deleting
+    const hasSales = sales.some(s => s.customer_id === id);
+    if (hasSales) {
+        alert('ไม่สามารถลบลูกค้ารายนี้ได้ เนื่องจากมีประวัติการซื้อขายในระบบ กรุณาลบรายการขายที่เกี่ยวข้องก่อน');
+        return;
+    }
+
     if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบลูกค้ารายนี้?')) {
+      const customerToDelete = customers.find(c => c.id === id);
       const { error } = await supabaseClient.from('customers').delete().eq('id', id);
       if (error) {
-        console.error("Error deleting customer:", error);
-        alert(`เกิดข้อผิดพลาดในการลบลูกค้า: ${formatSupabaseError(error)}`);
+        alert(`Error deleting customer: ${formatSupabaseError(error)}`);
       } else {
         setCustomers(prev => prev.filter(c => c.id !== id));
+        if (customerToDelete?.borrowed_tanks) {
+            await syncInventoryLoans(customerToDelete.borrowed_tanks, []);
+        }
       }
     }
   };
 
   // Sale
   const addSale = async (data: Omit<Sale, 'id'>) => {
-    const { data: newSale, error } = await supabaseClient.from('sales').insert(data).select().single();
+    // Inject Cost Price at moment of sale
+    const cost = getStandardCost(data.tank_brand, data.tank_size);
+    const saleWithCost = { ...data, cost_price: cost };
+
+    const { data: newSale, error } = await supabaseClient.from('sales').insert(saleWithCost).select().single();
     if (error) {
-        console.error("Error adding sale:", error);
-        alert(`เกิดข้อผิดพลาดในการเพิ่มรายการขาย: ${formatSupabaseError(error)}`);
+        alert(`Error adding sale: ${formatSupabaseError(error)}`);
     } else if (newSale) {
         setSales(prev => [newSale, ...prev]);
         await updateInventoryCount(newSale.tank_brand, newSale.tank_size, -newSale.quantity);
@@ -155,13 +219,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSale = async (data: Sale) => {
     const originalSale = sales.find(s => s.id === data.id);
     const { id, created_at, ...updateData } = data;
+    
+    // Re-check cost if not present (migration support)
+    if (updateData.cost_price === undefined || updateData.cost_price === null) {
+         updateData.cost_price = getStandardCost(updateData.tank_brand, updateData.tank_size);
+    }
+
     const { data: updatedSale, error } = await supabaseClient.from('sales').update(updateData).eq('id', id).select().single();
      if (error) {
-        console.error("Error updating sale:", error);
-        alert(`เกิดข้อผิดพลาดในการแก้ไขรายการขาย: ${formatSupabaseError(error)}`);
+        alert(`Error updating sale: ${formatSupabaseError(error)}`);
     } else if (updatedSale) {
         if (originalSale) {
-             // Revert old inventory count if tank/quantity changed
             if (originalSale.tank_brand !== updatedSale.tank_brand || originalSale.tank_size !== updatedSale.tank_size || originalSale.quantity !== updatedSale.quantity) {
                 await updateInventoryCount(originalSale.tank_brand, originalSale.tank_size, originalSale.quantity); // Revert
                 await updateInventoryCount(updatedSale.tank_brand, updatedSale.tank_size, -updatedSale.quantity); // Apply new
@@ -176,8 +244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (saleToDelete) {
             const { error } = await supabaseClient.from('sales').delete().eq('id', id);
             if (error) {
-                console.error("Error deleting sale:", error);
-                alert(`เกิดข้อผิดพลาดในการลบรายการขาย: ${formatSupabaseError(error)}`);
+                alert(`Error deleting sale: ${formatSupabaseError(error)}`);
             } else {
                 await updateInventoryCount(saleToDelete.tank_brand, saleToDelete.tank_size, saleToDelete.quantity);
                 setSales(prev => prev.filter(s => s.id !== id));
@@ -190,12 +257,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addExpense = async (data: Omit<Expense, 'id'>) => {
     const { data: newExpense, error } = await supabaseClient.from('expenses').insert(data).select().single();
     if (error) {
-        console.error("Error adding expense:", error);
-        alert(`เกิดข้อผิดพลาดในการเพิ่มรายจ่าย: ${formatSupabaseError(error)}`);
+        console.error("Expense Add Error:", error);
+        alert(`Error adding expense: ${formatSupabaseError(error)}`);
     } else if (newExpense) {
         setExpenses(prev => [newExpense, ...prev]);
-        if (newExpense.refill_tank_brand && newExpense.refill_tank_size && newExpense.refill_quantity) {
-            await updateInventoryCount(newExpense.refill_tank_brand, newExpense.refill_tank_size, newExpense.refill_quantity);
+        // Handle Inventory Refill Update (If expense is refill)
+        if (newExpense.refill_details && Array.isArray(newExpense.refill_details)) {
+            for (const item of newExpense.refill_details) {
+                await updateInventoryCount(item.brand, item.size, item.quantity);
+            }
         }
     }
   };
@@ -204,14 +274,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const { id, created_at, ...updateData } = data;
     const { data: updatedExpense, error } = await supabaseClient.from('expenses').update(updateData).eq('id', id).select().single();
      if (error) {
-        console.error("Error updating expense:", error);
-        alert(`เกิดข้อผิดพลาดในการแก้ไขรายจ่าย: ${formatSupabaseError(error)}`);
+        alert(`Error updating expense: ${formatSupabaseError(error)}`);
     } else if (updatedExpense) {
-        if (originalExpense?.refill_quantity) {
-            await updateInventoryCount(originalExpense.refill_tank_brand!, originalExpense.refill_tank_size!, -originalExpense.refill_quantity);
+        // Revert old stock add
+        if (originalExpense?.refill_details) {
+            for (const item of originalExpense.refill_details) {
+                 await updateInventoryCount(item.brand, item.size, -item.quantity);
+            }
         }
-        if (updatedExpense.refill_quantity) {
-            await updateInventoryCount(updatedExpense.refill_tank_brand!, updatedExpense.refill_tank_size!, updatedExpense.refill_quantity);
+        // Apply new stock add
+        if (updatedExpense.refill_details) {
+            for (const item of updatedExpense.refill_details) {
+                 await updateInventoryCount(item.brand, item.size, item.quantity);
+            }
         }
         setExpenses(prev => prev.map(e => e.id === data.id ? updatedExpense : e));
     }
@@ -222,11 +297,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (expenseToDelete) {
             const { error } = await supabaseClient.from('expenses').delete().eq('id', id);
             if (error) {
-                 console.error("Error deleting expense:", error);
-                 alert(`เกิดข้อผิดพลาดในการลบรายจ่าย: ${formatSupabaseError(error)}`);
+                 alert(`Error deleting expense: ${formatSupabaseError(error)}`);
             } else {
-                if (expenseToDelete.refill_quantity) {
-                    await updateInventoryCount(expenseToDelete.refill_tank_brand!, expenseToDelete.refill_tank_size!, -expenseToDelete.refill_quantity);
+                if (expenseToDelete.refill_details) {
+                    for (const item of expenseToDelete.refill_details) {
+                        await updateInventoryCount(item.brand, item.size, -item.quantity);
+                    }
                 }
                 setExpenses(prev => prev.filter(e => e.id !== id));
             }
@@ -236,30 +312,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   // Inventory
   const addInventoryItem = async (data: Omit<InventoryItem, 'id'>) => {
-    const existing = inventory.find(i => i.tank_brand === data.tank_brand && i.tank_size === data.tank_size);
-    if (existing) {
-        alert(`สต็อกสำหรับ ${data.tank_brand} ${data.tank_size} มีอยู่แล้วในระบบ`);
-        return;
-    }
-     const { data: newItem, error } = await supabaseClient.from('inventory').insert(data).select().single();
+     // Ensure brand/size are null if not provided (for Accessories)
+     const safeData = {
+         ...data,
+         tank_brand: data.tank_brand || null,
+         tank_size: data.tank_size || null
+     };
+     const { data: newItem, error } = await supabaseClient.from('inventory').insert(safeData).select().single();
      if (error) {
-        console.error("Error adding inventory item:", error);
-        alert(`เกิดข้อผิดพลาดในการเพิ่มสต็อก: ${formatSupabaseError(error)}`);
+        alert(`Error adding inventory item: ${formatSupabaseError(error)}`);
      } else if (newItem) {
         setInventory(prev => [newItem, ...prev]);
      }
   };
   const updateInventoryItem = async (data: InventoryItem) => {
-      const existing = inventory.find(i => i.id !== data.id && i.tank_brand === data.tank_brand && i.tank_size === data.tank_size);
-      if (existing) {
-          alert(`สต็อกสำหรับ ${data.tank_brand} ${data.tank_size} มีอยู่แล้วในระบบ`);
-          return;
-      }
       const { id, created_at, ...updateData } = data;
       const { data: updatedItem, error } = await supabaseClient.from('inventory').update(updateData).eq('id', id).select().single();
       if (error) {
-        console.error("Error updating inventory item:", error);
-        alert(`เกิดข้อผิดพลาดในการแก้ไขสต็อก: ${formatSupabaseError(error)}`);
+        alert(`Error updating inventory item: ${formatSupabaseError(error)}`);
       } else if (updatedItem) {
         setInventory(prev => prev.map(i => i.id === data.id ? updatedItem : i));
       }
@@ -268,63 +338,132 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบสต็อกสินค้านี้?')) {
         const { error } = await supabaseClient.from('inventory').delete().eq('id', id);
         if (error) {
-            console.error("Error deleting inventory item:", error);
-            alert(`เกิดข้อผิดพลาดในการลบสต็อก: ${formatSupabaseError(error)}`);
+            alert(`Error deleting inventory item: ${formatSupabaseError(error)}`);
         } else {
             setInventory(prev => prev.filter(i => i.id !== id));
         }
     }
   };
 
-  // --- Memos for Summaries ---
-  const isSameDay = (dateString: string, targetDate: Date) => {
-    const date = new Date(dateString);
-    return date.getDate() === targetDate.getDate() &&
-           date.getMonth() === targetDate.getMonth() &&
-           date.getFullYear() === targetDate.getFullYear();
-  };
+  // --- SUMMARIES ---
 
-  const reportSummary = useMemo(() => {
+  const dailySummary = useMemo(() => {
     const dateSales = sales.filter(s => isSameDay(s.date, reportDate));
     const income = dateSales.reduce((acc, s) => acc + s.total_amount, 0);
+    
+    const profit = dateSales.reduce((acc, s) => {
+        const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
+        return acc + (s.total_amount - (cost * s.quantity));
+    }, 0);
+
     const cashIncome = dateSales.filter(s => s.payment_method === PaymentMethod.CASH).reduce((acc, s) => acc + s.total_amount, 0);
     const transferIncome = dateSales.filter(s => s.payment_method === PaymentMethod.TRANSFER).reduce((acc, s) => acc + s.total_amount, 0);
     const creditIncome = dateSales.filter(s => s.payment_method === PaymentMethod.CREDIT).reduce((acc, s) => acc + s.total_amount, 0);
     
-    const expense = expenses.filter(e => isSameDay(e.date, reportDate)).reduce((acc, e) => acc + e.amount, 0);
+    const dateExpenses = expenses.filter(e => isSameDay(e.date, reportDate));
+    const expense = dateExpenses.reduce((acc, e) => acc + e.amount, 0);
     
+    const netProfit = profit - expense;
+
     const salesByCustomerMap = dateSales.reduce((acc, sale) => {
         const customer = getCustomerById(sale.customer_id);
         const customerName = customer ? `${customer.name} (${customer.branch})` : 'ลูกค้าทั่วไป';
-        
-        const existingEntry = acc.get(sale.customer_id);
-        
-        if (existingEntry) {
-            existingEntry.totalAmount += sale.total_amount;
-        } else {
-            acc.set(sale.customer_id, {
-                customerId: sale.customer_id,
-                customerName: customerName,
-                totalAmount: sale.total_amount,
-            });
+        if (!acc.get(sale.customer_id)) {
+            acc.set(sale.customer_id, { customerId: sale.customer_id, customerName, totalAmount: 0 });
         }
+        acc.get(sale.customer_id)!.totalAmount += sale.total_amount;
         return acc;
     }, new Map<string, { customerId: string; customerName: string; totalAmount: number }>());
 
-    const salesByCustomer = Array.from(salesByCustomerMap.values())
-        .sort((a, b) => b.totalAmount - a.totalAmount);
+    const salesByCustomer = (Array.from(salesByCustomerMap.values()) as { customerId: string; customerName: string; totalAmount: number }[]).sort((a, b) => b.totalAmount - a.totalAmount);
 
-    return { income, expense, profit: income - expense, cashIncome, transferIncome, creditIncome, salesByCustomer };
-  }, [sales, expenses, reportDate, customers]);
+    return { income, expense, profit: netProfit, cashIncome, transferIncome, creditIncome, salesByCustomer };
+  }, [sales, expenses, reportDate, customers, inventory]);
 
-  const totalSummary = useMemo(() => {
-    const income = sales.reduce((acc, s) => acc + s.total_amount, 0);
-    const expense = expenses.reduce((acc, e) => acc + e.amount, 0);
-    return { income, expense, profit: income - expense };
-  }, [sales, expenses]);
+  const monthlySummary = useMemo(() => {
+      const monthSales = sales.filter(s => isSameMonth(s.date, reportDate));
+      const monthExpenses = expenses.filter(e => isSameMonth(e.date, reportDate));
+
+      const income = monthSales.reduce((acc, s) => acc + s.total_amount, 0);
+      const expense = monthExpenses.reduce((acc, e) => acc + e.amount, 0);
+      
+      const grossProfit = monthSales.reduce((acc, s) => {
+        const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
+        return acc + (s.total_amount - (cost * s.quantity));
+      }, 0);
+      const profit = grossProfit - expense;
+
+      // Customer Monthly Stats
+      const custMap = new Map<string, { id: string, name: string, branch: string, tanks: number, total: number, profit: number }>();
+      
+      monthSales.forEach(s => {
+          if (!custMap.has(s.customer_id)) {
+              const c = getCustomerById(s.customer_id);
+              custMap.set(s.customer_id, { 
+                  id: s.customer_id, 
+                  name: c?.name || 'Unknown', 
+                  branch: c?.branch || '-', 
+                  tanks: 0, 
+                  total: 0, 
+                  profit: 0 
+              });
+          }
+          const entry = custMap.get(s.customer_id)!;
+          entry.tanks += s.quantity;
+          entry.total += s.total_amount;
+          const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
+          entry.profit += (s.total_amount - (cost * s.quantity));
+      });
+      const customerStats = Array.from(custMap.values()).sort((a, b) => b.total - a.total);
+
+      // Gas Return
+      const gasReturnKg = monthExpenses.reduce((acc, e) => acc + (e.gas_return_kg || 0), 0);
+      const gasReturnValue = monthExpenses.reduce((acc, e) => acc + (e.gas_return_amount || 0), 0);
+
+      // Refill Stats
+      const refillMap = new Map<string, { size: string, count: number, cost: number }>();
+      monthExpenses.forEach(e => {
+          if (e.refill_details) {
+              e.refill_details.forEach(item => {
+                  const key = `${item.brand} ${item.size}`;
+                  if (!refillMap.has(key)) refillMap.set(key, { size: key, count: 0, cost: 0 });
+                  const r = refillMap.get(key)!;
+                  r.count += item.quantity;
+              });
+          }
+          // Legacy support
+          if (e.refill_tank_brand && e.refill_tank_size) {
+               const key = `${e.refill_tank_brand} ${e.refill_tank_size}`;
+               if (!refillMap.has(key)) refillMap.set(key, { size: key, count: 0, cost: 0 });
+               refillMap.get(key)!.count += (e.refill_quantity || 0);
+          }
+      });
+      const refillStats = Array.from(refillMap.values());
+
+      // Expense Breakdown
+      const expenseBreakdownMap = new Map<string, { type: string, count: number, totalAmount: number, totalGasQty: number }>();
+
+      monthExpenses.forEach(e => {
+        const type = e.type || 'อื่นๆ';
+        if (!expenseBreakdownMap.has(type)) {
+            expenseBreakdownMap.set(type, { type, count: 0, totalAmount: 0, totalGasQty: 0 });
+        }
+        const entry = expenseBreakdownMap.get(type)!;
+        entry.count += 1;
+        entry.totalAmount += e.amount;
+
+        if (e.refill_details && Array.isArray(e.refill_details)) {
+            const qty = e.refill_details.reduce((sum, item) => sum + (item.quantity || 0), 0);
+            entry.totalGasQty += qty;
+        }
+      });
+      const expenseBreakdown = Array.from(expenseBreakdownMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+
+      return { income, expense, profit, customerStats, gasReturnKg, gasReturnValue, refillStats, expenseBreakdown };
+  }, [sales, expenses, reportDate, customers, inventory]);
 
   const value = {
-    loading, customers, sales, expenses, inventory, getCustomerById, reportDate, setReportDate, reportSummary, totalSummary,
+    loading, customers, sales, expenses, inventory, getCustomerById, reportDate, setReportDate, dailySummary, monthlySummary,
     addCustomer, updateCustomer, deleteCustomer,
     addSale, updateSale, deleteSale,
     addExpense, updateExpense, deleteExpense,

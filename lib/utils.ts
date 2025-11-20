@@ -1,3 +1,4 @@
+
 /**
  * Formats a Date object into a 'YYYY-MM-DD' string suitable for date input fields.
  * This avoids timezone issues that can arise from using .toISOString().
@@ -10,6 +11,31 @@ export const formatDateForInput = (date: Date): string => {
   const day = date.getDate().toString().padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+/**
+ * Checks if two dates are the same calendar day, ignoring time.
+ * Handles string inputs (ISO) by converting them to local date context.
+ */
+export const isSameDay = (dateString: string | Date, targetDate: Date): boolean => {
+  const d1 = new Date(dateString);
+  const d2 = new Date(targetDate);
+
+  return d1.getDate() === d2.getDate() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getFullYear() === d2.getFullYear();
+};
+
+/**
+ * Check if a date is in the same month and year as the target date.
+ */
+export const isSameMonth = (dateString: string | Date, targetDate: Date): boolean => {
+  const d1 = new Date(dateString);
+  const d2 = new Date(targetDate);
+
+  return d1.getMonth() === d2.getMonth() &&
+         d1.getFullYear() === d2.getFullYear();
+}
+
 
 /**
  * Formats an error object into a user-friendly string.

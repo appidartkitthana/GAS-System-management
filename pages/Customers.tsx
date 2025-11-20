@@ -1,8 +1,9 @@
+
 import React, { useState, useMemo } from 'react';
 import Header from '../components/Header';
 import Card from '../components/Card';
 import { useAppContext } from '../context/AppContext';
-import { Customer, Brand, Size } from '../types';
+import { Customer, Brand, Size, BorrowedTank } from '../types';
 import PlusCircleIcon from '../components/icons/PlusCircleIcon';
 import Modal from '../components/Modal';
 import PencilIcon from '../components/icons/PencilIcon';
@@ -13,16 +14,32 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
         name: customer?.name || '',
         branch: customer?.branch || '',
         price: customer?.price.toString() || '',
-        borrowed_tanks_quantity: customer?.borrowed_tanks_quantity.toString() || '0',
         tank_brand: customer?.tank_brand || Brand.PTT,
         tank_size: customer?.tank_size || Size.S48,
         address: customer?.address || '',
         tax_id: customer?.tax_id || '',
     });
+    
+    // Manage borrowed tanks as an array
+    const [borrowedTanks, setBorrowedTanks] = useState<BorrowedTank[]>(customer?.borrowed_tanks || []);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleAddBorrowed = () => {
+        setBorrowedTanks([...borrowedTanks, { brand: Brand.PTT, size: Size.S48, quantity: 1 }]);
+    };
+
+    const handleBorrowedChange = (index: number, field: keyof BorrowedTank, value: any) => {
+        const updated = [...borrowedTanks];
+        updated[index] = { ...updated[index], [field]: value };
+        setBorrowedTanks(updated);
+    };
+
+    const handleRemoveBorrowed = (index: number) => {
+        setBorrowedTanks(borrowedTanks.filter((_, i) => i !== index));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -31,35 +48,60 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
             ...customer,
             ...formData,
             price: parseFloat(formData.price) || 0,
-            borrowed_tanks_quantity: parseInt(formData.borrowed_tanks_quantity, 10) || 0,
+            borrowed_tanks: borrowedTanks,
         };
         onSave(submissionData as Customer | Omit<Customer, 'id'>);
     };
 
     return (
         <form onSubmit={handleSubmit}>
-            <div className="space-y-4">
+            <div className="space-y-4 h-[70vh] overflow-y-auto pr-2">
                 <input name="name" value={formData.name} onChange={handleChange} placeholder="ชื่อลูกค้า" className="w-full p-2 border rounded" required />
                 <input name="branch" value={formData.branch} onChange={handleChange} placeholder="สาขา" className="w-full p-2 border rounded" required />
-                <textarea name="address" value={formData.address} onChange={handleChange} placeholder="ที่อยู่ (สำหรับใบกำกับภาษี)" className="w-full p-2 border rounded" rows={3}></textarea>
+                <input name="price" value={formData.price} onChange={handleChange} placeholder="ราคาขาย (รวมภาษี)" type="number" className="w-full p-2 border rounded" required />
+                
+                <div className="p-3 bg-blue-50 rounded border border-blue-100">
+                    <label className="block text-xs font-bold text-blue-800 mb-2">ความชอบเริ่มต้น (Default)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                        <select name="tank_brand" value={formData.tank_brand} onChange={handleChange} className="w-full p-2 border rounded">
+                            {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                        <select name="tank_size" value={formData.tank_size} onChange={handleChange} className="w-full p-2 border rounded">
+                            {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="p-3 bg-orange-50 rounded border border-orange-100">
+                    <div className="flex justify-between items-center mb-2">
+                         <label className="block text-xs font-bold text-orange-800">รายการถังยืม</label>
+                         <button type="button" onClick={handleAddBorrowed} className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded hover:bg-orange-300">+ เพิ่มรายการ</button>
+                    </div>
+                    {borrowedTanks.map((item, index) => (
+                        <div key={index} className="flex items-center space-x-2 mb-2">
+                             <select value={item.brand} onChange={(e) => handleBorrowedChange(index, 'brand', e.target.value)} className="w-1/3 text-xs p-1 border rounded">
+                                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                            <select value={item.size} onChange={(e) => handleBorrowedChange(index, 'size', e.target.value)} className="w-1/3 text-xs p-1 border rounded">
+                                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <input type="number" value={item.quantity} onChange={(e) => handleBorrowedChange(index, 'quantity', parseInt(e.target.value) || 0)} className="w-16 text-xs p-1 border rounded" placeholder="จำนวน" />
+                            <button type="button" onClick={() => handleRemoveBorrowed(index)} className="text-red-500"><TrashIcon className="h-4 w-4"/></button>
+                        </div>
+                    ))}
+                    {borrowedTanks.length === 0 && <p className="text-xs text-gray-400 italic">ไม่มีรายการยืม</p>}
+                </div>
+
+                <textarea name="address" value={formData.address} onChange={handleChange} placeholder="ที่อยู่ (สำหรับใบกำกับภาษี)" className="w-full p-2 border rounded" rows={2}></textarea>
                 <input name="tax_id" value={formData.tax_id} onChange={handleChange} placeholder="เลขประจำตัวผู้เสียภาษี" className="w-full p-2 border rounded" />
-                <input name="price" value={formData.price} onChange={handleChange} placeholder="ราคา" type="number" className="w-full p-2 border rounded" required />
-                <select name="tank_brand" value={formData.tank_brand} onChange={handleChange} className="w-full p-2 border rounded">
-                    {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-                <select name="tank_size" value={formData.tank_size} onChange={handleChange} className="w-full p-2 border rounded">
-                    {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <input name="borrowed_tanks_quantity" value={formData.borrowed_tanks_quantity} onChange={handleChange} placeholder="จำนวนถังยืม" type="number" className="w-full p-2 border rounded" />
             </div>
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
                 <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">ยกเลิก</button>
                 <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
             </div>
         </form>
     )
 }
-
 
 const Customers: React.FC = () => {
     const { customers, addCustomer, updateCustomer, deleteCustomer } = useAppContext();
@@ -87,15 +129,18 @@ const Customers: React.FC = () => {
     }
 
     const filteredCustomers = useMemo(() => {
-        if (!searchQuery.trim()) {
-            return customers;
-        }
+        if (!searchQuery.trim()) return customers;
         const lowercasedQuery = searchQuery.toLowerCase();
         return customers.filter(customer =>
             customer.name.toLowerCase().includes(lowercasedQuery) ||
             customer.branch.toLowerCase().includes(lowercasedQuery)
         );
     }, [customers, searchQuery]);
+
+    const getTotalBorrowed = (c: Customer) => {
+        if (!c.borrowed_tanks) return 0;
+        return c.borrowed_tanks.reduce((acc, curr) => acc + curr.quantity, 0);
+    };
 
   return (
     <div>
@@ -104,32 +149,25 @@ const Customers: React.FC = () => {
             <PlusCircleIcon />
         </button>
       </Header>
-
       <div className="mb-4">
-        <input
-          type="text"
-          placeholder="ค้นหาลูกค้า (ชื่อ หรือ สาขา)..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full p-3 border border-gray-300 rounded-lg bg-white/80 shadow-inner focus:ring-2 focus:ring-orange-400 focus:outline-none transition-shadow"
-          aria-label="Search customers"
-        />
+        <input type="text" placeholder="ค้นหาลูกค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full p-3 border border-gray-300 rounded-lg bg-white/80 shadow-inner focus:ring-2 focus:ring-orange-400 focus:outline-none" />
       </div>
-
       <div className="space-y-3">
-        {filteredCustomers.length > 0 ? (
-          filteredCustomers.map((customer: Customer) => (
+        {filteredCustomers.length > 0 ? filteredCustomers.map((customer: Customer) => (
             <Card key={customer.id}>
                 <div className="pr-16">
                     <h3 className="font-bold text-lg text-sky-700">{customer.name}</h3>
                     <p className="text-gray-600">{customer.branch}</p>
-                    {customer.address && <p className="text-xs text-gray-500 mt-1">{customer.address}</p>}
                     <div className="mt-2 pt-2 border-t border-gray-200 text-sm space-y-1">
-                        <p><span className="font-semibold text-gray-500">ถัง:</span> {customer.tank_brand} {customer.tank_size}</p>
                         <p><span className="font-semibold text-gray-500">ราคา:</span> {customer.price.toLocaleString('th-TH')} ฿</p>
-                         {customer.tax_id && <p><span className="font-semibold text-gray-500">เลขผู้เสียภาษี:</span> {customer.tax_id}</p>}
-                        {customer.borrowed_tanks_quantity > 0 && (
-                             <p><span className="font-semibold text-gray-500">ถังยืม:</span> {customer.borrowed_tanks_quantity} ถัง</p>
+                        {customer.borrowed_tanks && customer.borrowed_tanks.length > 0 && (
+                             <div className="bg-orange-50 p-1 rounded mt-1">
+                                <p className="font-semibold text-gray-500 text-xs">ถังยืม ({getTotalBorrowed(customer)}):</p>
+                                {customer.borrowed_tanks.map((b, idx) => (
+                                    <p key={idx} className="text-xs ml-2">- {b.brand} {b.size}: {b.quantity}</p>
+                                ))}
+                             </div>
                         )}
                     </div>
                 </div>
@@ -138,12 +176,7 @@ const Customers: React.FC = () => {
                     <button onClick={() => deleteCustomer(customer.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
                 </div>
             </Card>
-          ))
-        ) : (
-          <Card>
-            <p className="text-center text-gray-500">ไม่พบลูกค้าที่ตรงกับการค้นหา</p>
-          </Card>
-        )}
+          )) : <Card><p className="text-center text-gray-500">ไม่พบลูกค้า</p></Card>}
       </div>
       <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingCustomer ? 'แก้ไขข้อมูลลูกค้า' : 'เพิ่มลูกค้าใหม่'}>
         <CustomerForm customer={editingCustomer} onSave={handleSave} onClose={handleCloseModal} />

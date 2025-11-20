@@ -1,8 +1,9 @@
+
 import React, { useState, useMemo } from 'react';
 import Header from '../components/Header';
 import Card from '../components/Card';
 import { useAppContext } from '../context/AppContext';
-import { InventoryItem, Brand, Size } from '../types';
+import { InventoryItem, Brand, Size, InventoryCategory } from '../types';
 import PlusCircleIcon from '../components/icons/PlusCircleIcon';
 import Modal from '../components/Modal';
 import PencilIcon from '../components/icons/PencilIcon';
@@ -12,23 +13,19 @@ const InventoryForm: React.FC<{
   item: InventoryItem | null;
   onSave: (item: InventoryItem | Omit<InventoryItem, 'id'>) => void;
   onClose: () => void;
-}> = ({ item, onSave, onClose }) => {
+  category: InventoryCategory;
+}> = ({ item, onSave, onClose, category }) => {
   const [formData, setFormData] = useState(() => {
-    if (item) {
-      return {
-        tank_brand: item.tank_brand,
-        tank_size: item.tank_size,
-        total: item.total.toString(),
-        full: item.full.toString(),
-        on_loan: item.on_loan.toString(),
-      };
-    }
+    if (item) return { ...item, cost_price: item.cost_price?.toString() || '' };
     return {
-      tank_brand: Brand.PTT,
-      tank_size: Size.S48,
-      total: '',
-      full: '',
-      on_loan: '0',
+      category: category,
+      tank_brand: category === InventoryCategory.GAS ? Brand.PTT : null,
+      tank_size: category === InventoryCategory.GAS ? Size.S48 : null,
+      name: '',
+      total: 0,
+      full: 0,
+      on_loan: 0,
+      cost_price: '',
     };
   });
 
@@ -39,94 +36,47 @@ const InventoryForm: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const total = parseInt(formData.total, 10) || 0;
-    const full = parseInt(formData.full, 10) || 0;
-
-    if (full > total) {
-      alert('จำนวนถังเต็มต้องไม่มากกว่าจำนวนทั้งหมด');
-      return;
-    }
-
     const submissionData = {
-      ...item,
       ...formData,
-      total,
-      full,
-      on_loan: parseInt(formData.on_loan, 10) || 0,
+      // Ensure valid data types
+      total: parseInt(formData.total.toString(), 10) || 0,
+      full: parseInt(formData.full.toString(), 10) || 0,
+      on_loan: parseInt(formData.on_loan.toString(), 10) || 0,
+      cost_price: parseFloat(formData.cost_price?.toString() || '0') || 0,
+      // Ensure nulls for non-gas items to avoid DB constraint issues (if relaxed)
+      tank_brand: category === InventoryCategory.ACCESSORY ? null : formData.tank_brand,
+      tank_size: category === InventoryCategory.ACCESSORY ? null : formData.tank_size,
     };
-
+    if (item) submissionData.id = item.id;
     onSave(submissionData as InventoryItem | Omit<InventoryItem, 'id'>);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <select
-        name="tank_brand"
-        value={formData.tank_brand}
-        onChange={handleChange}
-        className="w-full p-2 border rounded"
-        disabled={!!item}
-      >
-        {Object.values(Brand).map(b => (
-          <option key={b} value={b}>{b}</option>
-        ))}
-      </select>
+      {category === InventoryCategory.GAS ? (
+        <>
+            <select name="tank_brand" value={formData.tank_brand || Brand.PTT} onChange={handleChange} className="w-full p-2 border rounded" disabled={!!item}>
+                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+            <select name="tank_size" value={formData.tank_size || Size.S48} onChange={handleChange} className="w-full p-2 border rounded" disabled={!!item}>
+                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+        </>
+      ) : (
+        <input name="name" value={formData.name || ''} onChange={handleChange} placeholder="ชื่ออุปกรณ์" className="w-full p-2 border rounded" required />
+      )}
 
-      <select
-        name="tank_size"
-        value={formData.tank_size}
-        onChange={handleChange}
-        className="w-full p-2 border rounded"
-        disabled={!!item}
-      >
-        {Object.values(Size).map(s => (
-          <option key={s} value={s}>{s}</option>
-        ))}
-      </select>
-
-      <input
-        name="total"
-        value={formData.total}
-        onChange={handleChange}
-        placeholder="จำนวนทั้งหมด"
-        type="number"
-        className="w-full p-2 border rounded"
-        required
-      />
-
-      <input
-        name="full"
-        value={formData.full}
-        onChange={handleChange}
-        placeholder="จำนวนถังเต็ม"
-        type="number"
-        className="w-full p-2 border rounded"
-        required
-      />
-
-      <input
-        name="on_loan"
-        value={formData.on_loan}
-        onChange={handleChange}
-        placeholder="จำนวนถังยืม"
-        type="number"
-        className="w-full p-2 border rounded"
-      />
-
+      <input name="total" value={formData.total} onChange={handleChange} placeholder="จำนวนทั้งหมด" type="number" className="w-full p-2 border rounded" required />
+      
+      {category === InventoryCategory.GAS && (
+          <input name="full" value={formData.full} onChange={handleChange} placeholder="จำนวนถังเต็ม" type="number" className="w-full p-2 border rounded" required />
+      )}
+      
+      <input name="cost_price" value={formData.cost_price} onChange={handleChange} placeholder="ราคาต้นทุน (บาท)" type="number" className="w-full p-2 border rounded" />
+      
       <div className="flex justify-end space-x-2 mt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 bg-gray-200 rounded-lg"
-        >
-          ยกเลิก
-        </button>
-        <button
-          type="submit"
-          className="px-4 py-2 bg-sky-500 text-white rounded-lg"
-        >
-          บันทึก
-        </button>
+        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">ยกเลิก</button>
+        <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
       </div>
     </form>
   );
@@ -134,8 +84,13 @@ const InventoryForm: React.FC<{
 
 const Inventory: React.FC = () => {
   const { inventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } = useAppContext();
+  const [activeTab, setActiveTab] = useState<InventoryCategory>(InventoryCategory.GAS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+
+  const filteredInventory = useMemo(() => {
+      return inventory.filter(i => i.category === activeTab || (!i.category && activeTab === InventoryCategory.GAS));
+  }, [inventory, activeTab]);
 
   const handleOpenModal = (item: InventoryItem | null = null) => {
     setEditingItem(item);
@@ -157,8 +112,8 @@ const Inventory: React.FC = () => {
   };
 
   const summary = useMemo(() => {
-    const totalTanks = inventory.reduce((acc, item) => acc + item.total, 0);
-    const totalFull = inventory.reduce((acc, item) => acc + item.full, 0);
+    const totalTanks = inventory.filter(i => i.category === InventoryCategory.GAS || !i.category).reduce((acc, item) => acc + item.total, 0);
+    const totalFull = inventory.filter(i => i.category === InventoryCategory.GAS || !i.category).reduce((acc, item) => acc + item.full, 0);
     const totalEmpty = totalTanks - totalFull;
     return { totalTanks, totalFull, totalEmpty };
   }, [inventory]);
@@ -166,54 +121,39 @@ const Inventory: React.FC = () => {
   return (
     <div>
       <Header title="สต็อกสินค้า">
-        <button
-          onClick={() => handleOpenModal()}
-          className="text-orange-500 hover:text-orange-600"
-        >
-          <PlusCircleIcon />
-        </button>
+        <button onClick={() => handleOpenModal()} className="text-orange-500 hover:text-orange-600"><PlusCircleIcon /></button>
       </Header>
 
-      <Card className="mb-4">
-        <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปสต็อกทั้งหมด</h2>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-sm text-gray-500">ถังทั้งหมด</p>
-            <p className="text-2xl font-bold text-gray-800">{summary.totalTanks}</p>
-          </div>
-          <div>
-            <p className="text-sm text-green-500">ถังเต็ม</p>
-            <p className="text-2xl font-bold text-green-600">{summary.totalFull}</p>
-          </div>
-          <div>
-            <p className="text-sm text-orange-500">ถังเปล่า</p>
-            <p className="text-2xl font-bold text-orange-600">{summary.totalEmpty}</p>
-          </div>
-        </div>
-      </Card>
+      <div className="flex bg-white/80 p-1 rounded-lg shadow-inner backdrop-blur-sm mb-4">
+        <button onClick={() => setActiveTab(InventoryCategory.GAS)} className={`w-full py-2 rounded-md transition-colors ${activeTab === InventoryCategory.GAS ? 'bg-orange-400 text-white shadow' : 'text-gray-600'}`}>ก๊าซหุงต้ม</button>
+        <button onClick={() => setActiveTab(InventoryCategory.ACCESSORY)} className={`w-full py-2 rounded-md transition-colors ${activeTab === InventoryCategory.ACCESSORY ? 'bg-orange-400 text-white shadow' : 'text-gray-600'}`}>อุปกรณ์</button>
+      </div>
+
+      {activeTab === InventoryCategory.GAS && (
+        <Card className="mb-4">
+            <div className="grid grid-cols-3 gap-4 text-center">
+            <div><p className="text-sm text-gray-500">ถังทั้งหมด</p><p className="text-2xl font-bold text-gray-800">{summary.totalTanks}</p></div>
+            <div><p className="text-sm text-green-500">ถังเต็ม</p><p className="text-2xl font-bold text-green-600">{summary.totalFull}</p></div>
+            <div><p className="text-sm text-orange-500">ถังเปล่า</p><p className="text-2xl font-bold text-orange-600">{summary.totalEmpty}</p></div>
+            </div>
+        </Card>
+      )}
 
       <div className="space-y-3">
-        {inventory.map((item: InventoryItem) => (
+        {filteredInventory.map((item: InventoryItem) => (
           <Card key={item.id}>
-            <h3 className="font-bold text-lg text-sky-700 pr-16">{item.tank_brand} - {item.tank_size}</h3>
+            <h3 className="font-bold text-lg text-sky-700 pr-16">{item.category === InventoryCategory.ACCESSORY ? item.name : `${item.tank_brand} - ${item.tank_size}`}</h3>
             <div className="grid grid-cols-4 gap-2 mt-2 text-center">
-              <div>
-                <p className="text-xs text-gray-500">ทั้งหมด</p>
-                <p className="font-bold text-xl">{item.total}</p>
-              </div>
-              <div>
-                <p className="text-xs text-green-500">เต็ม</p>
-                <p className="font-bold text-xl text-green-600">{item.full}</p>
-              </div>
-              <div>
-                <p className="text-xs text-orange-500">เปล่า</p>
-                <p className="font-bold text-xl text-orange-600">{item.total - item.full}</p>
-              </div>
-              <div>
-                <p className="text-xs text-blue-500">ยืม</p>
-                <p className="font-bold text-xl text-blue-600">{item.on_loan}</p>
-              </div>
+              <div><p className="text-xs text-gray-500">ทั้งหมด</p><p className="font-bold text-xl">{item.total}</p></div>
+              {item.category !== InventoryCategory.ACCESSORY && (
+                  <>
+                    <div><p className="text-xs text-green-500">เต็ม</p><p className="font-bold text-xl text-green-600">{item.full}</p></div>
+                    <div><p className="text-xs text-orange-500">เปล่า</p><p className="font-bold text-xl text-orange-600">{item.total - item.full}</p></div>
+                  </>
+              )}
+              <div><p className="text-xs text-blue-500">ถูกยืม</p><p className="font-bold text-xl text-blue-600">{item.on_loan}</p></div>
             </div>
+            <p className="text-xs text-gray-400 mt-2">ต้นทุน: {item.cost_price?.toLocaleString() || 0} ฿</p>
             <div className="absolute top-3 right-3 flex space-x-2">
               <button onClick={() => handleOpenModal(item)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
               <button onClick={() => deleteInventoryItem(item.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
@@ -223,7 +163,7 @@ const Inventory: React.FC = () => {
       </div>
 
       <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingItem ? 'แก้ไขสต็อก' : 'เพิ่มสต็อกใหม่'}>
-        <InventoryForm item={editingItem} onSave={handleSave} onClose={handleCloseModal} />
+        <InventoryForm item={editingItem} onSave={handleSave} onClose={handleCloseModal} category={activeTab} />
       </Modal>
     </div>
   );

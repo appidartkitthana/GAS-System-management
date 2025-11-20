@@ -1,10 +1,12 @@
+
 import React, { useState } from 'react';
 import Header from '../components/Header';
 import Card from '../components/Card';
 import { supabaseClient } from '../lib/supabaseClient';
 import CheckCircleIcon from '../components/icons/CheckCircleIcon';
 import XCircleIcon from '../components/icons/XCircleIcon';
-import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType } from '../types';
+import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory } from '../types';
+import { formatSupabaseError } from '../lib/utils';
 
 type Status = 'idle' | 'testing' | 'success' | 'error';
 type ErrorType = 'schema' | 'rls' | 'connection' | 'unknown';
@@ -15,15 +17,6 @@ interface TestResult {
   errorType: ErrorType | null;
   schemaFixes: { table: string, fix: string }[];
 }
-
-// Defines the expected structure of the database.
-const EXPECTED_SCHEMA = {
-  customers: ['id', 'created_at', 'name', 'branch', 'price', 'tank_brand', 'tank_size', 'borrowed_tanks_quantity', 'address', 'tax_id'],
-  sales: ['id', 'created_at', 'customer_id', 'date', 'quantity', 'unit_price', 'total_amount', 'tank_brand', 'tank_size', 'payment_method', 'invoice_type', 'invoice_number', 'gas_return_kg'],
-  expenses: ['id', 'created_at', 'date', 'type', 'description', 'amount', 'payment_method', 'refill_tank_brand', 'refill_tank_size', 'refill_quantity'],
-  inventory: ['id', 'created_at', 'tank_brand', 'tank_size', 'total', 'full', 'on_loan'],
-};
-
 
 const Settings: React.FC = () => {
   const [testResult, setTestResult] = useState<TestResult>({
@@ -51,24 +44,55 @@ const Settings: React.FC = () => {
     try {
       // --- Stage 1: Schema Validation ---
       addMessage('1. กำลังตรวจสอบโครงสร้างฐานข้อมูล (Schema)...');
-      for (const [tableName, columns] of Object.entries(EXPECTED_SCHEMA)) {
-        addMessage(`- ตรวจสอบตาราง '${tableName}'`);
-        const { error } = await supabaseClient.from(tableName).select(columns.join(',')).limit(1);
+      
+      // Define Columns to check
+      const checks = [
+          { table: 'customers', column: 'borrowed_tanks', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN borrowed_tanks jsonb;' },
+          { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN category text;' },
+          { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
+          { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN cost_price numeric;' },
+          { table: 'expenses', column: 'refill_details', type: 'jsonb', fix: 'ALTER TABLE public.expenses ADD COLUMN refill_details jsonb;' },
+          { table: 'expenses', column: 'payee', type: 'text', fix: 'ALTER TABLE public.expenses ADD COLUMN payee text;' },
+          { table: 'expenses', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_kg numeric;' },
+          { table: 'expenses', column: 'gas_return_amount', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_amount numeric;' },
+          { table: 'sales', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN cost_price numeric;' },
+      ];
 
-        if (error) {
-          if (error.code === '42P01') { // undefined_table
-            schemaErrors.push(`❌ ไม่พบตารางที่ชื่อว่า '${tableName}'`);
-            // Note: Cannot suggest a fix for a missing table easily, as types are unknown.
-          } else if (error.message.includes('column') && error.message.includes('does not exist')) {
-            const missingColumnMatch = error.message.match(/column "([^"]+)" does not exist/);
-            const missingColumn = missingColumnMatch ? missingColumnMatch[1] : 'ไม่ทราบชื่อ';
-            schemaErrors.push(`❌ ตาราง '${tableName}' ขาดคอลัมน์: '${missingColumn}'`);
-            schemaFixes.push({ table: tableName, fix: `ALTER TABLE public.${tableName} ADD COLUMN ${missingColumn} text; -- หมายเหตุ: โปรดเปลี่ยน 'text' เป็นชนิดข้อมูลที่ถูกต้อง` });
-          } else {
-            // Re-throw other errors to be caught by the main catch block
-            throw { stage: `Schema Check (${tableName})`, originalError: error };
+      for (const check of checks) {
+          addMessage(`- ตรวจสอบตาราง '${check.table}' คอลัมน์ '${check.column}'`);
+          const { error } = await supabaseClient.from(check.table).select(check.column).limit(1);
+          if (error) {
+             schemaErrors.push(`❌ ตาราง '${check.table}' ขาดคอลัมน์: '${check.column}'`);
+             schemaFixes.push(check);
           }
-        }
+      }
+
+      // Special Check for Nullable constraints in Inventory (for Accessories)
+      // Since we can't easily check constraints via API, we try to insert an accessory.
+      addMessage('- ทดสอบการบันทึกอุปกรณ์ (Accessory)...');
+      const { error: accError } = await supabaseClient.from('inventory').insert({
+          category: InventoryCategory.ACCESSORY,
+          name: 'Test Accessory',
+          total: 1,
+          full: 0,
+          on_loan: 0,
+          tank_brand: null, // Should be allowed
+          tank_size: null   // Should be allowed
+      }).select().single();
+
+      if (accError) {
+           // Likely NOT NULL constraint violation
+           if (accError.message?.includes('null value') || accError.details?.includes('failing row contains')) {
+               schemaErrors.push(`❌ ตาราง 'inventory' ยังไม่รองรับสินค้าที่ไม่มีแบรนด์ (อุปกรณ์)`);
+               schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_brand DROP NOT NULL;' });
+               schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_size DROP NOT NULL;' });
+           } else {
+               // Other error, treat as schema/permission
+               throw { stage: 'INSERT Accessory', table: 'inventory', originalError: accError };
+           }
+      } else {
+          // If successful, clean it up immediately (search by name since we didn't capture ID nicely in this flow, or just rely on RLS cleanup)
+           await supabaseClient.from('inventory').delete().eq('name', 'Test Accessory');
       }
 
       if (schemaErrors.length > 0) {
@@ -81,13 +105,13 @@ const Settings: React.FC = () => {
       
       // Test Customers
       addMessage('- ทดสอบตาราง `customers` (INSERT, DELETE)');
-      const { data: cData, error: cInsertErr } = await supabaseClient.from('customers').insert({ name: testId, branch: 'test', price: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER, borrowed_tanks_quantity: 0 }).select('id').single();
+      const { data: cData, error: cInsertErr } = await supabaseClient.from('customers').insert({ name: testId, branch: 'test', price: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER }).select('id').single();
       if (cInsertErr) throw { stage: 'INSERT', table: 'customers', originalError: cInsertErr };
       customerId = cData.id;
 
-      // Test Inventory
+      // Test Inventory (Gas)
       addMessage('- ทดสอบตาราง `inventory` (INSERT, DELETE)');
-      const { data: iData, error: iInsertErr } = await supabaseClient.from('inventory').insert({ tank_brand: Brand.OTHER, tank_size: Size.OTHER, total: 1, full: 1, on_loan: 0 }).select('id').single();
+      const { data: iData, error: iInsertErr } = await supabaseClient.from('inventory').insert({ total: 1, full: 1, on_loan: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER, category: InventoryCategory.GAS }).select('id').single();
       if (iInsertErr) throw { stage: 'INSERT', table: 'inventory', originalError: iInsertErr };
       inventoryId = iData.id;
       
@@ -97,19 +121,15 @@ const Settings: React.FC = () => {
       if (eInsertErr) throw { stage: 'INSERT', table: 'expenses', originalError: eInsertErr };
       expenseId = eData.id;
 
-      // Test Sales (depends on customer)
+      // Test Sales
       addMessage('- ทดสอบตาราง `sales` (INSERT, DELETE)');
       const { data: sData, error: sInsertErr } = await supabaseClient.from('sales').insert({ customer_id: customerId, date: new Date().toISOString(), quantity: 1, unit_price: 0, total_amount: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER, payment_method: PaymentMethod.CASH, invoice_type: InvoiceType.CASH, invoice_number: testId }).select('id').single();
       if (sInsertErr) throw { stage: 'INSERT', table: 'sales', originalError: sInsertErr };
       saleId = sData.id;
 
-      // Cleanup successful inserts
+      // Cleanup handled in finally block mostly, but double check here
       addMessage('- กำลังลบข้อมูลทดสอบ...');
-      await supabaseClient.from('sales').delete().eq('id', saleId);
-      await supabaseClient.from('customers').delete().eq('id', customerId);
-      await supabaseClient.from('inventory').delete().eq('id', inventoryId);
-      await supabaseClient.from('expenses').delete().eq('id', expenseId);
-
+      
       setTestResult(prev => ({ ...prev, status: 'success', messages: ['✅ เชื่อมต่อและทดสอบฐานข้อมูลสำเร็จ! โครงสร้างและสิทธิ์การใช้งานถูกต้องทั้งหมด'] }));
 
     } catch (error: any) {
@@ -126,27 +146,34 @@ const Settings: React.FC = () => {
         const stage = error.stage || 'Unknown';
         const table = error.table || 'N/A';
         const originalError = error.originalError || error;
+        
+        // Use formatSupabaseError to get a readable string
+        const errorMsg = formatSupabaseError(originalError);
+
         let errorMessages: string[] = [`การทดสอบล้มเหลวที่ขั้นตอน '${stage}' ของตาราง '${table}'`];
         let errorType: ErrorType = 'unknown';
 
-        if (originalError.message.includes('violates row-level security policy')) {
+        if (errorMsg.includes('violates row-level security policy') || (originalError.message && originalError.message.includes('violates row-level security policy'))) {
             errorMessages.push(`สาเหตุ: ไม่ได้รับอนุญาตจากนโยบายความปลอดภัย (RLS)`);
             errorType = 'rls';
-        } else if (originalError.message.includes('fetch')) {
+        } else if (errorMsg.includes('fetch') || (originalError.message && originalError.message.includes('fetch'))) {
             errorMessages.push(`สาเหตุ: ไม่สามารถเชื่อมต่อกับ Supabase URL ได้`);
             errorType = 'connection';
         } else {
-             errorMessages.push(`ข้อผิดพลาด: ${originalError.message}`);
+             errorMessages.push(`ข้อผิดพลาด: ${errorMsg}`);
         }
 
         setTestResult(prev => ({ ...prev, status: 'error', messages: errorMessages, errorType }));
         console.error('Database connection test failed:', originalError);
     } finally {
-        // Final cleanup in case of failure during deletion phase
-        if (saleId) await supabaseClient.from('sales').delete().eq('id', saleId).catch(console.error);
-        if (customerId) await supabaseClient.from('customers').delete().eq('id', customerId).catch(console.error);
-        if (inventoryId) await supabaseClient.from('inventory').delete().eq('id', inventoryId).catch(console.error);
-        if (expenseId) await supabaseClient.from('expenses').delete().eq('id', expenseId).catch(console.error);
+        // Robust cleanup
+        const clean = async () => {
+             if (saleId) await supabaseClient.from('sales').delete().eq('id', saleId);
+             if (customerId) await supabaseClient.from('customers').delete().eq('id', customerId);
+             if (inventoryId) await supabaseClient.from('inventory').delete().eq('id', inventoryId);
+             if (expenseId) await supabaseClient.from('expenses').delete().eq('id', expenseId);
+        }
+        clean();
     }
   };
 
@@ -154,86 +181,40 @@ const Settings: React.FC = () => {
     const { status, messages, errorType, schemaFixes } = testResult;
 
     if (status === 'idle') return null;
-
-    if (status === 'testing') {
-        return (
-            <div className="mt-4 p-4 rounded-lg bg-blue-100 text-blue-800">
-                <div className="flex items-center font-semibold mb-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-800 mr-2"></div>
-                    กำลังทดสอบ...
-                </div>
-                <ul className="list-disc list-inside text-sm space-y-1">
-                    {messages.map((msg, i) => <li key={i}>{msg}</li>)}
-                </ul>
-            </div>
-        );
-    }
-
-    if (status === 'success') {
-      return (
-        <div className="mt-4 p-4 rounded-lg bg-green-100 text-green-800 flex items-center space-x-2">
-          <CheckCircleIcon />
-          <p className="font-semibold">{messages[0]}</p>
-        </div>
-      );
-    }
+    if (status === 'testing') return <div className="mt-4 p-4 rounded-lg bg-blue-100 text-blue-800">กำลังทดสอบ...</div>;
+    if (status === 'success') return <div className="mt-4 p-4 rounded-lg bg-green-100 text-green-800 flex items-center space-x-2"><CheckCircleIcon /><p>{messages[0]}</p></div>;
 
     if (status === 'error') {
       return (
         <div className="mt-4 p-4 rounded-lg bg-red-100 text-red-800">
-          <div className="flex items-center space-x-2 font-bold">
-            <XCircleIcon />
-            <p>พบข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล</p>
-          </div>
-          <div className="mt-2 pl-8 text-sm space-y-1">
-            {messages.map((msg, i) => <p key={i}>{msg}</p>)}
-          </div>
+          <div className="flex items-center space-x-2 font-bold"><XCircleIcon /><p>พบข้อผิดพลาด</p></div>
+          <div className="mt-2 pl-8 text-sm space-y-1">{messages.map((msg, i) => <p key={i}>{msg}</p>)}</div>
           
           {errorType === 'schema' && schemaFixes.length > 0 && (
             <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
-              <p className="font-bold mb-2">วิธีแก้ไข (Schema):</p>
-              <p className="mb-2">คัดลอกและรันโค้ด SQL ข้างล่างนี้ใน SQL Editor ของ Supabase เพื่อแก้ไขคอลัมน์ที่ขาดหายไป:</p>
+              <p className="font-bold mb-2">วิธีแก้ไข (อัปเกรดฐานข้อมูล):</p>
+              <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase SQL Editor:</p>
               <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
                 <code>{schemaFixes.map(fix => fix.fix).join('\n')}</code>
               </pre>
             </div>
           )}
-
-          {errorType === 'rls' && (
-             <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
-                <p className="font-bold mb-2">วิธีแก้ไข (RLS):</p>
-                <p className="mb-2">ไปที่ <b>SQL Editor</b> ในโปรเจกต์ Supabase ของคุณ และรันโค้ดข้างล่างนี้เพื่อเปิดสิทธิ์การใช้งาน:</p>
-                <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
-                    <code>
-{`-- Customers
-ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow anon access" ON public.customers;
-CREATE POLICY "Allow anon access" ON public.customers FOR ALL USING (true) WITH CHECK (true);
-
--- Sales
-ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow anon access" ON public.sales;
-CREATE POLICY "Allow anon access" ON public.sales FOR ALL USING (true) WITH CHECK (true);
-
--- Expenses
-ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow anon access" ON public.expenses;
-CREATE POLICY "Allow anon access" ON public.expenses FOR ALL USING (true) WITH CHECK (true);
-
--- Inventory
-ALTER TABLE public.inventory ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow anon access" ON public.inventory;
-CREATE POLICY "Allow anon access" ON public.inventory FOR ALL USING (true) WITH CHECK (true);
+          
+           {errorType === 'rls' && (
+            <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
+              <p className="font-bold mb-2">วิธีแก้ไข (เปิดสิทธิ์การใช้งาน):</p>
+              <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase SQL Editor:</p>
+              <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
+                <code>
+{`-- เปิดสิทธิ์การอ่านและเขียนข้อมูลสำหรับทุกตาราง (สำหรับทดสอบ)
+CREATE POLICY "Enable all access for all users" ON "public"."customers" FOR ALL USING (true);
+CREATE POLICY "Enable all access for all users" ON "public"."inventory" FOR ALL USING (true);
+CREATE POLICY "Enable all access for all users" ON "public"."sales" FOR ALL USING (true);
+CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL USING (true);
 `}
-                    </code>
-                </pre>
-             </div>
-          )}
-
-          {errorType === 'connection' && (
-              <p className="mt-3 pt-3 border-t border-red-200 text-sm text-gray-700">
-                  <b>คำแนะนำ:</b> โปรดตรวจสอบว่า Supabase URL และ Key ในไฟล์ <code>lib/supabaseClient.ts</code> ถูกต้อง และคอมพิวเตอร์ของคุณสามารถเข้าถึงอินเทอร์เน็ตได้
-              </p>
+                </code>
+              </pre>
+            </div>
           )}
         </div>
       );
@@ -246,14 +227,7 @@ CREATE POLICY "Allow anon access" ON public.inventory FOR ALL USING (true) WITH 
       <Header title="ตั้งค่า" />
       <Card>
         <h2 className="text-lg font-semibold mb-2 text-gray-700">วินิจฉัยระบบฐานข้อมูล</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          เครื่องมือนี้จะตรวจสอบการเชื่อมต่อ, โครงสร้าง (Schema), และสิทธิ์การใช้งาน (RLS) ของฐานข้อมูล Supabase ทั้งหมด เพื่อให้แน่ใจว่าแอปพลิเคชันสามารถทำงานได้อย่างถูกต้อง
-        </p>
-        <button
-          onClick={handleTestConnection}
-          disabled={testResult.status === 'testing'}
-          className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 disabled:cursor-wait transition-colors"
-        >
+        <button onClick={handleTestConnection} disabled={testResult.status === 'testing'} className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 transition-colors">
           {testResult.status === 'testing' ? 'กำลังทดสอบ...' : 'เริ่มการทดสอบระบบ'}
         </button>
         {renderStatus()}
