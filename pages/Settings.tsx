@@ -62,13 +62,13 @@ const Settings: React.FC = () => {
           addMessage(`- ตรวจสอบตาราง '${check.table}' คอลัมน์ '${check.column}'`);
           const { error } = await supabaseClient.from(check.table).select(check.column).limit(1);
           if (error) {
+             // If column doesn't exist, Supabase returns error 42703 or similar
              schemaErrors.push(`❌ ตาราง '${check.table}' ขาดคอลัมน์: '${check.column}'`);
              schemaFixes.push(check);
           }
       }
 
       // Special Check for Nullable constraints in Inventory (for Accessories)
-      // Since we can't easily check constraints via API, we try to insert an accessory.
       addMessage('- ทดสอบการบันทึกอุปกรณ์ (Accessory)...');
       const { error: accError } = await supabaseClient.from('inventory').insert({
           category: InventoryCategory.ACCESSORY,
@@ -81,17 +81,15 @@ const Settings: React.FC = () => {
       }).select().single();
 
       if (accError) {
-           // Likely NOT NULL constraint violation
            if (accError.message?.includes('null value') || accError.details?.includes('failing row contains')) {
                schemaErrors.push(`❌ ตาราง 'inventory' ยังไม่รองรับสินค้าที่ไม่มีแบรนด์ (อุปกรณ์)`);
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_brand DROP NOT NULL;' });
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_size DROP NOT NULL;' });
            } else {
-               // Other error, treat as schema/permission
                throw { stage: 'INSERT Accessory', table: 'inventory', originalError: accError };
            }
       } else {
-          // If successful, clean it up immediately (search by name since we didn't capture ID nicely in this flow, or just rely on RLS cleanup)
+           // Clean up immediately by name
            await supabaseClient.from('inventory').delete().eq('name', 'Test Accessory');
       }
 
@@ -105,29 +103,66 @@ const Settings: React.FC = () => {
       
       // Test Customers
       addMessage('- ทดสอบตาราง `customers` (INSERT, DELETE)');
-      const { data: cData, error: cInsertErr } = await supabaseClient.from('customers').insert({ name: testId, branch: 'test', price: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER }).select('id').single();
+      const { data: cData, error: cInsertErr } = await supabaseClient.from('customers').insert({ 
+          name: testId, 
+          branch: 'test', 
+          price: 0, 
+          tank_brand: Brand.OTHER, 
+          tank_size: Size.OTHER,
+          borrowed_tanks: [] 
+      }).select('id').single();
       if (cInsertErr) throw { stage: 'INSERT', table: 'customers', originalError: cInsertErr };
       customerId = cData.id;
 
       // Test Inventory (Gas)
       addMessage('- ทดสอบตาราง `inventory` (INSERT, DELETE)');
-      const { data: iData, error: iInsertErr } = await supabaseClient.from('inventory').insert({ total: 1, full: 1, on_loan: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER, category: InventoryCategory.GAS }).select('id').single();
+      const { data: iData, error: iInsertErr } = await supabaseClient.from('inventory').insert({ 
+          total: 1, 
+          full: 1, 
+          on_loan: 0, 
+          tank_brand: Brand.OTHER, 
+          tank_size: Size.OTHER, 
+          category: InventoryCategory.GAS,
+          cost_price: 0
+      }).select('id').single();
       if (iInsertErr) throw { stage: 'INSERT', table: 'inventory', originalError: iInsertErr };
       inventoryId = iData.id;
       
-      // Test Expenses
+      // Test Expenses (Strict Mode: Include all new fields)
       addMessage('- ทดสอบตาราง `expenses` (INSERT, DELETE)');
-      const { data: eData, error: eInsertErr } = await supabaseClient.from('expenses').insert({ date: new Date().toISOString(), type: ExpenseType.OTHER, description: testId, amount: 0, payment_method: PaymentMethod.CASH }).select('id').single();
+      const { data: eData, error: eInsertErr } = await supabaseClient.from('expenses').insert({ 
+          date: new Date().toISOString(), 
+          type: ExpenseType.OTHER, 
+          description: testId, 
+          amount: 0, 
+          payment_method: PaymentMethod.CASH,
+          payee: 'System Test', 
+          refill_details: [], 
+          gas_return_kg: 0, 
+          gas_return_amount: 0 
+      }).select('id').single();
       if (eInsertErr) throw { stage: 'INSERT', table: 'expenses', originalError: eInsertErr };
       expenseId = eData.id;
 
-      // Test Sales
+      // Test Sales (Strict Mode: Include all new fields)
       addMessage('- ทดสอบตาราง `sales` (INSERT, DELETE)');
-      const { data: sData, error: sInsertErr } = await supabaseClient.from('sales').insert({ customer_id: customerId, date: new Date().toISOString(), quantity: 1, unit_price: 0, total_amount: 0, tank_brand: Brand.OTHER, tank_size: Size.OTHER, payment_method: PaymentMethod.CASH, invoice_type: InvoiceType.CASH, invoice_number: testId }).select('id').single();
+      const { data: sData, error: sInsertErr } = await supabaseClient.from('sales').insert({ 
+          customer_id: customerId, 
+          date: new Date().toISOString(), 
+          quantity: 1, 
+          unit_price: 0, 
+          total_amount: 0, 
+          tank_brand: Brand.OTHER, 
+          tank_size: Size.OTHER, 
+          payment_method: PaymentMethod.CASH, 
+          invoice_type: InvoiceType.CASH, 
+          invoice_number: testId,
+          cost_price: 0
+      }).select('id').single();
       if (sInsertErr) throw { stage: 'INSERT', table: 'sales', originalError: sInsertErr };
       saleId = sData.id;
 
-      // Cleanup handled in finally block mostly, but double check here
+      // Cleanup
       addMessage('- กำลังลบข้อมูลทดสอบ...');
       
       setTestResult(prev => ({ ...prev, status: 'success', messages: ['✅ เชื่อมต่อและทดสอบฐานข้อมูลสำเร็จ! โครงสร้างและสิทธิ์การใช้งานถูกต้องทั้งหมด'] }));
@@ -147,7 +182,6 @@ const Settings: React.FC = () => {
         const table = error.table || 'N/A';
         const originalError = error.originalError || error;
         
-        // Use formatSupabaseError to get a readable string
         const errorMsg = formatSupabaseError(originalError);
 
         let errorMessages: string[] = [`การทดสอบล้มเหลวที่ขั้นตอน '${stage}' ของตาราง '${table}'`];
@@ -166,7 +200,6 @@ const Settings: React.FC = () => {
         setTestResult(prev => ({ ...prev, status: 'error', messages: errorMessages, errorType }));
         console.error('Database connection test failed:', originalError);
     } finally {
-        // Robust cleanup
         const clean = async () => {
              if (saleId) await supabaseClient.from('sales').delete().eq('id', saleId);
              if (customerId) await supabaseClient.from('customers').delete().eq('id', customerId);
@@ -206,8 +239,7 @@ const Settings: React.FC = () => {
               <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase SQL Editor:</p>
               <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
                 <code>
-{`-- เปิดสิทธิ์การอ่านและเขียนข้อมูลสำหรับทุกตาราง (สำหรับทดสอบ)
-CREATE POLICY "Enable all access for all users" ON "public"."customers" FOR ALL USING (true);
+{`CREATE POLICY "Enable all access for all users" ON "public"."customers" FOR ALL USING (true);
 CREATE POLICY "Enable all access for all users" ON "public"."inventory" FOR ALL USING (true);
 CREATE POLICY "Enable all access for all users" ON "public"."sales" FOR ALL USING (true);
 CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL USING (true);

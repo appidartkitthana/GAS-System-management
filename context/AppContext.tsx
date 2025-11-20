@@ -106,9 +106,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateInventoryCount = async (brand: Brand, size: Size, quantityChange: number) => {
     // Only update GAS inventory
     const item = inventory.find(i => i.tank_brand === brand && i.tank_size === size);
+    // If item doesn't exist in inventory yet, ignore.
     if (!item) return;
 
-    const newFullCount = item.full + quantityChange;
+    const newFullCount = (item.full || 0) + quantityChange;
     const { data: updatedItem, error } = await supabaseClient
       .from('inventory')
       .update({ full: newFullCount })
@@ -255,40 +256,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Expense
   const addExpense = async (data: Omit<Expense, 'id'>) => {
-    const { data: newExpense, error } = await supabaseClient.from('expenses').insert(data).select().single();
-    if (error) {
-        console.error("Expense Add Error:", error);
-        alert(`Error adding expense: ${formatSupabaseError(error)}`);
-    } else if (newExpense) {
-        setExpenses(prev => [newExpense, ...prev]);
-        // Handle Inventory Refill Update (If expense is refill)
-        if (newExpense.refill_details && Array.isArray(newExpense.refill_details)) {
-            for (const item of newExpense.refill_details) {
-                await updateInventoryCount(item.brand, item.size, item.quantity);
+    try {
+        // Ensure data is sanitized (remove undefined)
+        const safeData = JSON.parse(JSON.stringify(data));
+        
+        const { data: newExpense, error } = await supabaseClient.from('expenses').insert(safeData).select().single();
+        if (error) {
+            console.error("Expense Add Error:", error);
+            // Explicit check for schema mismatch
+            if (error.code === '42703') {
+                alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+            } else {
+                alert(`บันทึกรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
+            }
+        } else if (newExpense) {
+            setExpenses(prev => [newExpense, ...prev]);
+            // Handle Inventory Refill Update (If expense is refill)
+            if (newExpense.refill_details && Array.isArray(newExpense.refill_details)) {
+                for (const item of newExpense.refill_details) {
+                    await updateInventoryCount(item.brand, item.size, item.quantity);
+                }
             }
         }
+    } catch (e) {
+        console.error("Unexpected error in addExpense:", e);
+        alert(`เกิดข้อผิดพลาดที่ไม่คาดคิด: ${formatSupabaseError(e)}`);
     }
   };
+  
   const updateExpense = async (data: Expense) => {
-    const originalExpense = expenses.find(e => e.id === data.id);
-    const { id, created_at, ...updateData } = data;
-    const { data: updatedExpense, error } = await supabaseClient.from('expenses').update(updateData).eq('id', id).select().single();
-     if (error) {
-        alert(`Error updating expense: ${formatSupabaseError(error)}`);
-    } else if (updatedExpense) {
-        // Revert old stock add
-        if (originalExpense?.refill_details) {
-            for (const item of originalExpense.refill_details) {
-                 await updateInventoryCount(item.brand, item.size, -item.quantity);
+    try {
+        const originalExpense = expenses.find(e => e.id === data.id);
+        const { id, created_at, ...updateData } = data;
+        // Ensure data is sanitized
+        const safeData = JSON.parse(JSON.stringify(updateData));
+
+        const { data: updatedExpense, error } = await supabaseClient.from('expenses').update(safeData).eq('id', id).select().single();
+         if (error) {
+            if (error.code === '42703') {
+                alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+            } else {
+                alert(`แก้ไขรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
             }
-        }
-        // Apply new stock add
-        if (updatedExpense.refill_details) {
-            for (const item of updatedExpense.refill_details) {
-                 await updateInventoryCount(item.brand, item.size, item.quantity);
+        } else if (updatedExpense) {
+            // Revert old stock add
+            if (originalExpense?.refill_details) {
+                for (const item of originalExpense.refill_details) {
+                     await updateInventoryCount(item.brand, item.size, -item.quantity);
+                }
             }
+            // Apply new stock add
+            if (updatedExpense.refill_details) {
+                for (const item of updatedExpense.refill_details) {
+                     await updateInventoryCount(item.brand, item.size, item.quantity);
+                }
+            }
+            setExpenses(prev => prev.map(e => e.id === data.id ? updatedExpense : e));
         }
-        setExpenses(prev => prev.map(e => e.id === data.id ? updatedExpense : e));
+    } catch (e) {
+        alert(`เกิดข้อผิดพลาดในการแก้ไข: ${formatSupabaseError(e)}`);
     }
   };
   const deleteExpense = async (id: string) => {

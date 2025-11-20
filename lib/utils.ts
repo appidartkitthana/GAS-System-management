@@ -46,19 +46,31 @@ export const isSameMonth = (dateString: string | Date, targetDate: Date): boolea
 export const formatSupabaseError = (error: any): string => {
   if (!error) return 'เกิดข้อผิดพลาดที่ไม่รู้จัก';
 
-  // Most common case: a standard Error object or Supabase error with a message
-  if (typeof error.message === 'string' && error.message) {
-    // Handle specific known Supabase duplicate error for inventory
-    if (error.code === '23505' && error.details?.includes('inventory_tank_unique')) {
-      return 'ไม่สามารถบันทึกได้: มีสต็อกสินค้ายี่ห้อและขนาดนี้อยู่แล้ว';
-    }
-    // For other Supabase errors or generic errors, the message is usually sufficient.
-    return error.message;
+  // Handle Check constraints
+  if (error.code === '42703') {
+      return 'โครงสร้างฐานข้อมูลไม่ถูกต้อง (ไม่พบคอลัมน์ที่จำเป็น) กรุณาไปที่หน้า "ตั้งค่า" และกด "เริ่มการทดสอบระบบ" เพื่อรับโค้ดแก้ไขฐานข้อมูล';
+  }
+  if (error.code === '23505' && error.details?.includes('inventory_tank_unique')) {
+    return 'ไม่สามารถบันทึกได้: มีสต็อกสินค้ายี่ห้อและขนาดนี้อยู่แล้ว';
+  }
+  if (error.code === '42P01') {
+      return 'ไม่พบตารางข้อมูลในระบบ กรุณาตรวจสอบการตั้งค่าฐานข้อมูล';
+  }
+  if (error.code === '23502') {
+      return `ข้อมูลไม่ครบถ้วน: ${error.message}`;
   }
 
-  // Supabase error might have details which are more specific
-  if (typeof error.details === 'string' && error.details) {
-      return error.details;
+  // Handle Standard JS Error object first
+  if (error instanceof Error) {
+      return error.message;
+  }
+
+  // Supabase error object usually has 'message', 'details', 'hint'
+  if (typeof error === 'object') {
+      // Prioritize message
+      if (error.message && typeof error.message === 'string') return error.message;
+      if (error.details && typeof error.details === 'string') return error.details;
+      if (error.hint && typeof error.hint === 'string') return error.hint;
   }
 
   // Handle if the error itself is a string
@@ -66,17 +78,15 @@ export const formatSupabaseError = (error: any): string => {
     return error;
   }
 
-  // Fallback for non-standard error objects, try to stringify them
+  // Fallback: Try to JSON stringify.
   try {
-    const stringifiedError = JSON.stringify(error);
-    // Avoid showing an empty object
-    if (stringifiedError !== '{}') { 
-      return stringifiedError;
+    const stringified = JSON.stringify(error, null, 2);
+    if (stringified !== '{}' && stringified !== '[]') {
+        return `Error Code: ${error.code || 'N/A'} \nDetails: ${stringified}`;
     }
   } catch (e) {
-    // Could be a circular reference, fall through to the generic message
+      // ignore
   }
   
-  // Ultimate fallback if no useful information can be extracted
-  return 'เกิดข้อผิดพลาดที่ไม่รู้จัก โปรดตรวจสอบคอนโซลเพื่อดูรายละเอียดเพิ่มเติม';
+  return `เกิดข้อผิดพลาดที่ไม่รู้จัก (Type: ${typeof error})`;
 };
