@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 
@@ -205,40 +205,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sale
   const addSale = async (data: Omit<Sale, 'id'>) => {
-    // Inject Cost Price at moment of sale
-    const cost = getStandardCost(data.tank_brand, data.tank_size);
-    const saleWithCost = { ...data, cost_price: cost };
+    try {
+        // Prepare safe data (sanitize)
+        const safeData = JSON.parse(JSON.stringify(data));
+        
+        // Handle Cost Injection for Multi-items
+        if (safeData.items && Array.isArray(safeData.items)) {
+            safeData.items = safeData.items.map((item: SaleItem) => ({
+                ...item,
+                cost_price: item.cost_price || getStandardCost(item.brand, item.size)
+            }));
+        } else {
+            // Fallback for single item legacy structure
+            safeData.cost_price = safeData.cost_price || getStandardCost(safeData.tank_brand, safeData.tank_size);
+        }
 
-    const { data: newSale, error } = await supabaseClient.from('sales').insert(saleWithCost).select().single();
-    if (error) {
-        alert(`Error adding sale: ${formatSupabaseError(error)}`);
-    } else if (newSale) {
-        setSales(prev => [newSale, ...prev]);
-        await updateInventoryCount(newSale.tank_brand, newSale.tank_size, -newSale.quantity);
+        const { data: newSale, error } = await supabaseClient.from('sales').insert(safeData).select().single();
+        if (error) {
+            if (error.code === '42703') {
+                alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต (ไม่พบคอลัมน์ items)\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+            } else {
+                alert(`Error adding sale: ${formatSupabaseError(error)}`);
+            }
+        } else if (newSale) {
+            setSales(prev => [newSale, ...prev]);
+            // Deduct Inventory
+            if (newSale.items && Array.isArray(newSale.items)) {
+                for (const item of newSale.items) {
+                    await updateInventoryCount(item.brand, item.size, -item.quantity);
+                }
+            } else {
+                // Legacy
+                await updateInventoryCount(newSale.tank_brand, newSale.tank_size, -newSale.quantity);
+            }
+        }
+    } catch (e) {
+        console.error(e);
+        alert(`Error: ${formatSupabaseError(e)}`);
     }
   };
+
   const updateSale = async (data: Sale) => {
     const originalSale = sales.find(s => s.id === data.id);
     const { id, created_at, ...updateData } = data;
-    
-    // Re-check cost if not present (migration support)
-    if (updateData.cost_price === undefined || updateData.cost_price === null) {
-         updateData.cost_price = getStandardCost(updateData.tank_brand, updateData.tank_size);
-    }
+    const safeData = JSON.parse(JSON.stringify(updateData));
 
-    const { data: updatedSale, error } = await supabaseClient.from('sales').update(updateData).eq('id', id).select().single();
+    const { data: updatedSale, error } = await supabaseClient.from('sales').update(safeData).eq('id', id).select().single();
      if (error) {
-        alert(`Error updating sale: ${formatSupabaseError(error)}`);
+        if (error.code === '42703') {
+            alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+        } else {
+            alert(`Error updating sale: ${formatSupabaseError(error)}`);
+        }
     } else if (updatedSale) {
         if (originalSale) {
-            if (originalSale.tank_brand !== updatedSale.tank_brand || originalSale.tank_size !== updatedSale.tank_size || originalSale.quantity !== updatedSale.quantity) {
-                await updateInventoryCount(originalSale.tank_brand, originalSale.tank_size, originalSale.quantity); // Revert
-                await updateInventoryCount(updatedSale.tank_brand, updatedSale.tank_size, -updatedSale.quantity); // Apply new
+            // Revert Original Inventory
+            if (originalSale.items && Array.isArray(originalSale.items)) {
+                for (const item of originalSale.items) {
+                    await updateInventoryCount(item.brand, item.size, item.quantity);
+                }
+            } else {
+                await updateInventoryCount(originalSale.tank_brand, originalSale.tank_size, originalSale.quantity);
+            }
+
+            // Deduct New Inventory
+            if (updatedSale.items && Array.isArray(updatedSale.items)) {
+                for (const item of updatedSale.items) {
+                    await updateInventoryCount(item.brand, item.size, -item.quantity);
+                }
+            } else {
+                await updateInventoryCount(updatedSale.tank_brand, updatedSale.tank_size, -updatedSale.quantity);
             }
         }
         setSales(prev => prev.map(s => s.id === data.id ? updatedSale : s));
     }
   };
+
   const deleteSale = async (id: string) => {
      if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการขายนี้?')) {
         const saleToDelete = sales.find(s => s.id === id);
@@ -247,7 +289,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (error) {
                 alert(`Error deleting sale: ${formatSupabaseError(error)}`);
             } else {
-                await updateInventoryCount(saleToDelete.tank_brand, saleToDelete.tank_size, saleToDelete.quantity);
+                // Revert Inventory
+                if (saleToDelete.items && Array.isArray(saleToDelete.items)) {
+                    for (const item of saleToDelete.items) {
+                        await updateInventoryCount(item.brand, item.size, item.quantity);
+                    }
+                } else {
+                    await updateInventoryCount(saleToDelete.tank_brand, saleToDelete.tank_size, saleToDelete.quantity);
+                }
                 setSales(prev => prev.filter(s => s.id !== id));
             }
         }
@@ -262,10 +311,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         
         const { data: newExpense, error } = await supabaseClient.from('expenses').insert(safeData).select().single();
         if (error) {
-            console.error("Expense Add Error:", error);
+            console.error("Expense Add Error:", JSON.stringify(error, null, 2));
             // Explicit check for schema mismatch
             if (error.code === '42703') {
-                alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+                alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต (ไม่พบคอลัมน์ที่จำเป็น)\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
             } else {
                 alert(`บันทึกรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
             }
@@ -293,6 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const { data: updatedExpense, error } = await supabaseClient.from('expenses').update(safeData).eq('id', id).select().single();
          if (error) {
+            console.error("Expense Update Error:", JSON.stringify(error, null, 2));
             if (error.code === '42703') {
                 alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
             } else {
@@ -344,18 +394,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          tank_brand: data.tank_brand || null,
          tank_size: data.tank_size || null
      };
-     const { data: newItem, error } = await supabaseClient.from('inventory').insert(safeData).select().single();
+     // Sanitize data
+     const sanitizedData = JSON.parse(JSON.stringify(safeData));
+
+     const { data: newItem, error } = await supabaseClient.from('inventory').insert(sanitizedData).select().single();
      if (error) {
-        alert(`Error adding inventory item: ${formatSupabaseError(error)}`);
+        console.error("Inventory Add Error:", JSON.stringify(error, null, 2));
+        if (error.code === '42703') {
+            alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต (ไม่พบคอลัมน์ที่จำเป็น)\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+        } else {
+            alert(`Error adding inventory item: ${formatSupabaseError(error)}`);
+        }
      } else if (newItem) {
         setInventory(prev => [newItem, ...prev]);
      }
   };
   const updateInventoryItem = async (data: InventoryItem) => {
       const { id, created_at, ...updateData } = data;
-      const { data: updatedItem, error } = await supabaseClient.from('inventory').update(updateData).eq('id', id).select().single();
+      const sanitizedData = JSON.parse(JSON.stringify(updateData));
+
+      const { data: updatedItem, error } = await supabaseClient.from('inventory').update(sanitizedData).eq('id', id).select().single();
       if (error) {
-        alert(`Error updating inventory item: ${formatSupabaseError(error)}`);
+        console.error("Inventory Update Error:", JSON.stringify(error, null, 2));
+        if (error.code === '42703') {
+            alert('ไม่สามารถบันทึกได้เนื่องจากโครงสร้างฐานข้อมูลยังไม่อัปเดต (ไม่พบคอลัมน์ที่จำเป็น)\n\nกรุณาไปที่หน้า "ตั้งค่า" แล้วกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล');
+        } else {
+            alert(`Error updating inventory item: ${formatSupabaseError(error)}`);
+        }
       } else if (updatedItem) {
         setInventory(prev => prev.map(i => i.id === data.id ? updatedItem : i));
       }
@@ -378,6 +443,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const income = dateSales.reduce((acc, s) => acc + s.total_amount, 0);
     
     const profit = dateSales.reduce((acc, s) => {
+        // Multi-item calculation
+        if (s.items && Array.isArray(s.items) && s.items.length > 0) {
+            const saleProfit = s.items.reduce((itemAcc, item) => {
+                const cost = item.cost_price || getStandardCost(item.brand, item.size);
+                return itemAcc + (item.total_price - (cost * item.quantity));
+            }, 0);
+            return acc + saleProfit;
+        }
+        // Legacy Calculation
         const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
         return acc + (s.total_amount - (cost * s.quantity));
     }, 0);
@@ -414,6 +488,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const expense = monthExpenses.reduce((acc, e) => acc + e.amount, 0);
       
       const grossProfit = monthSales.reduce((acc, s) => {
+        if (s.items && Array.isArray(s.items) && s.items.length > 0) {
+            const saleProfit = s.items.reduce((itemAcc, item) => {
+                const cost = item.cost_price || getStandardCost(item.brand, item.size);
+                return itemAcc + (item.total_price - (cost * item.quantity));
+            }, 0);
+            return acc + saleProfit;
+        }
         const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
         return acc + (s.total_amount - (cost * s.quantity));
       }, 0);
@@ -437,8 +518,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const entry = custMap.get(s.customer_id)!;
           entry.tanks += s.quantity;
           entry.total += s.total_amount;
-          const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
-          entry.profit += (s.total_amount - (cost * s.quantity));
+          
+          let currentSaleProfit = 0;
+          if (s.items && Array.isArray(s.items) && s.items.length > 0) {
+              currentSaleProfit = s.items.reduce((itemAcc, item) => {
+                  const cost = item.cost_price || getStandardCost(item.brand, item.size);
+                  return itemAcc + (item.total_price - (cost * item.quantity));
+              }, 0);
+          } else {
+              const cost = s.cost_price || getStandardCost(s.tank_brand, s.tank_size);
+              currentSaleProfit = (s.total_amount - (cost * s.quantity));
+          }
+          entry.profit += currentSaleProfit;
       });
       const customerStats = Array.from(custMap.values()).sort((a, b) => b.total - a.total);
 

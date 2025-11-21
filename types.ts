@@ -22,8 +22,13 @@ export enum InventoryCategory {
 export enum ExpenseType {
   REFILL = 'ค่าบรรจุก๊าซ',
   TRANSPORT = 'ค่าขนส่ง',
-  OVERHEAD = 'ค่าใช้จ่ายทั่วไป/เบ็ดเตล็ด',
+  TOLL = 'ค่าทางด่วน',
+  LOADING = 'ค่าขึ้นถัง',
+  GENERAL = 'ค่าใช้จ่ายทั่วไป',
+  MISC = 'เบ็ดเตล็ด',
   SALARY = 'เงินเดือนพนักงาน',
+  WATER = 'ค่าน้ำ',
+  ELECTRICITY = 'ค่าไฟ',
   OTHER = 'อื่นๆ',
 }
 
@@ -64,21 +69,31 @@ export interface Customer {
   tax_id?: string;
 }
 
+export interface SaleItem {
+  brand: Brand;
+  size: Size;
+  quantity: number;
+  unit_price: number; // Price per unit for this specific item
+  total_price: number; // quantity * unit_price
+  cost_price?: number; // Snapshot of cost at time of sale
+}
+
 export interface Sale {
   id: string;
   created_at?: string;
   customer_id: string;
   date: string; // ISO string
-  quantity: number;
-  unit_price: number;
-  cost_price?: number; // New: To calculate profit accurately per transaction
-  total_amount: number;
-  tank_brand: Brand;
-  tank_size: Size;
+  quantity: number; // Total Quantity (Sum of items)
+  unit_price: number; // Deprecated or Average
+  cost_price?: number; // Deprecated (Use item cost_price)
+  total_amount: number; // Grand Total
+  tank_brand: Brand; // Primary Brand (or first item)
+  tank_size: Size; // Primary Size (or first item)
   payment_method: PaymentMethod;
   invoice_type: InvoiceType;
   invoice_number: string;
   gas_return_kg?: number;
+  items?: SaleItem[]; // New: List of items in this sale
 }
 
 export interface RefillItem {
@@ -101,6 +116,10 @@ export interface Expense {
   refill_details?: RefillItem[]; 
   gas_return_kg?: number;
   gas_return_amount?: number;
+  // Legacy fields (Made optional to support legacy code in AppContext)
+  refill_tank_brand?: Brand;
+  refill_tank_size?: Size;
+  refill_quantity?: number;
 }
 
 export interface InventoryItem {
@@ -114,4 +133,5 @@ export interface InventoryItem {
   total: number;
   full: number;
   on_loan: number;
+  notes?: string; // New: Additional details/notes
 }

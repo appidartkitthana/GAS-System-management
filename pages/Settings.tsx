@@ -51,11 +51,13 @@ const Settings: React.FC = () => {
           { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN category text;' },
           { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
           { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN cost_price numeric;' },
+          { table: 'inventory', column: 'notes', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN notes text;' },
           { table: 'expenses', column: 'refill_details', type: 'jsonb', fix: 'ALTER TABLE public.expenses ADD COLUMN refill_details jsonb;' },
           { table: 'expenses', column: 'payee', type: 'text', fix: 'ALTER TABLE public.expenses ADD COLUMN payee text;' },
           { table: 'expenses', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_kg numeric;' },
           { table: 'expenses', column: 'gas_return_amount', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_amount numeric;' },
           { table: 'sales', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN cost_price numeric;' },
+          { table: 'sales', column: 'items', type: 'jsonb', fix: 'ALTER TABLE public.sales ADD COLUMN items jsonb;' },
       ];
 
       for (const check of checks) {
@@ -77,7 +79,8 @@ const Settings: React.FC = () => {
           full: 0,
           on_loan: 0,
           tank_brand: null, // Should be allowed
-          tank_size: null   // Should be allowed
+          tank_size: null,   // Should be allowed
+          notes: 'Test Note'
       }).select().single();
 
       if (accError) {
@@ -123,7 +126,8 @@ const Settings: React.FC = () => {
           tank_brand: Brand.OTHER, 
           tank_size: Size.OTHER, 
           category: InventoryCategory.GAS,
-          cost_price: 0
+          cost_price: 0,
+          notes: 'Test'
       }).select('id').single();
       if (iInsertErr) throw { stage: 'INSERT', table: 'inventory', originalError: iInsertErr };
       inventoryId = iData.id;
@@ -157,7 +161,8 @@ const Settings: React.FC = () => {
           payment_method: PaymentMethod.CASH, 
           invoice_type: InvoiceType.CASH, 
           invoice_number: testId,
-          cost_price: 0
+          cost_price: 0,
+          items: []
       }).select('id').single();
       if (sInsertErr) throw { stage: 'INSERT', table: 'sales', originalError: sInsertErr };
       saleId = sData.id;

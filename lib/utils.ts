@@ -46,47 +46,93 @@ export const isSameMonth = (dateString: string | Date, targetDate: Date): boolea
 export const formatSupabaseError = (error: any): string => {
   if (!error) return 'เกิดข้อผิดพลาดที่ไม่รู้จัก';
 
-  // Handle Check constraints
-  if (error.code === '42703') {
-      return 'โครงสร้างฐานข้อมูลไม่ถูกต้อง (ไม่พบคอลัมน์ที่จำเป็น) กรุณาไปที่หน้า "ตั้งค่า" และกด "เริ่มการทดสอบระบบ" เพื่อรับโค้ดแก้ไขฐานข้อมูล';
+  // Normalize the error object (Handle nested error property often returned by some clients)
+  const err = error.error || error;
+
+  // 1. Check for specific Postgres/Supabase Error Codes
+  const code = err.code || '';
+  if (code === '42703') {
+      return 'โครงสร้างฐานข้อมูลไม่ถูกต้อง (ไม่พบคอลัมน์ที่จำเป็น) กรุณาไปที่หน้า "ตั้งค่า" และกด "เริ่มการทดสอบระบบ" เพื่อซ่อมแซมฐานข้อมูล';
   }
-  if (error.code === '23505' && error.details?.includes('inventory_tank_unique')) {
-    return 'ไม่สามารถบันทึกได้: มีสต็อกสินค้ายี่ห้อและขนาดนี้อยู่แล้ว';
+  if (code === '23505') {
+      return 'ข้อมูลซ้ำซ้อน (Duplicate Key): ข้อมูลนี้มีอยู่ในระบบแล้ว';
   }
-  if (error.code === '42P01') {
+  if (code === '42P01') {
       return 'ไม่พบตารางข้อมูลในระบบ กรุณาตรวจสอบการตั้งค่าฐานข้อมูล';
   }
-  if (error.code === '23502') {
-      return `ข้อมูลไม่ครบถ้วน: ${error.message}`;
+  if (code === '23502') {
+      return 'ข้อมูลไม่ครบถ้วน (Not Null Violation)';
+  }
+  if (code === '42501') {
+      return 'ไม่ได้รับอนุญาต (RLS Policy): คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้';
   }
 
-  // Handle Standard JS Error object first
-  if (error instanceof Error) {
-      return error.message;
-  }
+  // 2. Check for Standard Message Properties
+  if (typeof err === 'string') return err;
+  if (err.message && typeof err.message === 'string') return err.message;
+  if (err.details && typeof err.details === 'string') return err.details;
+  if (err.hint && typeof err.hint === 'string') return err.hint;
 
-  // Supabase error object usually has 'message', 'details', 'hint'
-  if (typeof error === 'object') {
-      // Prioritize message
-      if (error.message && typeof error.message === 'string') return error.message;
-      if (error.details && typeof error.details === 'string') return error.details;
-      if (error.hint && typeof error.hint === 'string') return error.hint;
-  }
-
-  // Handle if the error itself is a string
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  // Fallback: Try to JSON stringify.
+  // 3. Fallback: Safe JSON Stringify
   try {
-    const stringified = JSON.stringify(error, null, 2);
-    if (stringified !== '{}' && stringified !== '[]') {
-        return `Error Code: ${error.code || 'N/A'} \nDetails: ${stringified}`;
+    const json = JSON.stringify(err, null, 2);
+    if (json && json !== '{}' && json !== '[]') {
+        return `Error Details: ${json}`;
     }
   } catch (e) {
-      // ignore
+      // Ignore serialization errors
   }
-  
-  return `เกิดข้อผิดพลาดที่ไม่รู้จัก (Type: ${typeof error})`;
+
+  // 4. Absolute Last Resort
+  return `เกิดข้อผิดพลาดที่ไม่รู้จัก (Code: ${code || 'Unknown'})`;
+};
+
+/**
+ * Converts a number to Thai Baht text.
+ * @param amount The amount to convert.
+ * @returns string
+ */
+export const thaiBahtText = (amount: number): string => {
+    const numStr = amount.toFixed(2);
+    const [baht, satang] = numStr.split('.');
+    
+    const thaiNum = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+    const thaiUnit = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน', 'ล้าน'];
+
+    const convert = (n: string) => {
+        let text = '';
+        const len = n.length;
+        for (let i = 0; i < len; i++) {
+            const digit = parseInt(n[i]);
+            const pos = len - i - 1;
+            if (digit !== 0) {
+                if (pos === 0 && digit === 1 && len > 1) {
+                    text += 'เอ็ด';
+                } else if (pos === 1 && digit === 2) {
+                    text += 'ยี่';
+                } else if (pos === 1 && digit === 1) {
+                    // Skip 'Nueng' for 10
+                } else {
+                    text += thaiNum[digit];
+                }
+                text += thaiUnit[pos];
+            }
+        }
+        return text;
+    };
+
+    let text = '';
+    if (parseInt(baht) === 0) {
+        text = 'ศูนย์บาท';
+    } else {
+        text = convert(baht) + 'บาท';
+    }
+
+    if (parseInt(satang) === 0) {
+        text += 'ถ้วน';
+    } else {
+        text += convert(satang) + 'สตางค์';
+    }
+
+    return text;
 };

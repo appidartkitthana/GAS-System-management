@@ -7,51 +7,88 @@ import PlusCircleIcon from '../components/icons/PlusCircleIcon';
 import PencilIcon from '../components/icons/PencilIcon';
 import TrashIcon from '../components/icons/TrashIcon';
 import PrinterIcon from '../components/icons/PrinterIcon';
+import DocumentIcon from '../components/icons/DocumentIcon';
 import Modal from '../components/Modal';
 import Invoice from '../components/Invoice';
+import InvoiceA4 from '../components/InvoiceA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
-import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem } from '../types';
+import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem } from '../types';
 import { formatDateForInput } from '../lib/utils';
 
 // --- FORMS ---
 
 const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, 'id'>) => void; onClose: () => void; }> = ({ sale, onSave, onClose }) => {
     const { customers } = useAppContext();
+    
+    // If existing sale, populate items. If no items (legacy), create one from the summary fields.
+    const initialItems: SaleItem[] = sale?.items && sale.items.length > 0 
+        ? sale.items 
+        : (sale ? [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }] 
+               : [{ brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: 0, total_price: 0 }]);
+
     const [formData, setFormData] = useState({
         customer_id: sale?.customer_id || (customers.length > 0 ? customers[0].id : ''),
-        quantity: sale?.quantity.toString() || '1',
         date: sale?.date ? formatDateForInput(new Date(sale.date)) : formatDateForInput(new Date()),
         payment_method: sale?.payment_method || PaymentMethod.CASH,
         invoice_type: sale?.invoice_type || InvoiceType.CASH,
         invoice_number: sale?.invoice_number || '',
         gas_return_kg: sale?.gas_return_kg?.toString() || '',
-        total_amount: sale?.total_amount?.toString() || '',
     });
 
-    // Auto-calculate total amount when dependencies change
-    useEffect(() => {
-        const customer = customers.find(c => c.id === formData.customer_id);
-        const quantity = parseInt(formData.quantity, 10) || 0;
-        const gasReturn = parseFloat(formData.gas_return_kg) || 0;
-        
+    const [items, setItems] = useState<SaleItem[]>(initialItems);
+
+    // Helper to get customer specific price if needed, or just keep existing
+    const updateItemPrice = (index: number, customerId: string) => {
+        const customer = customers.find(c => c.id === customerId);
         if (customer) {
-            // Formula requested: (quantity - gas_return_kg) * unit_price
-            // Ensure we don't get negative values if return is mistakenly high, or allow it if intended? 
-            // Usually total shouldn't be negative, but let's stick to the formula.
-            const calcAmount = (quantity - gasReturn) * customer.price;
-            
-            // Only update if the value is different to avoid cursor jumps or unnecessary renders
-            // Format to 2 decimal places for currency
-            const formattedAmount = calcAmount.toFixed(2);
-            
-            setFormData(prev => {
-                // If user has manually edited the price to something else, this auto-calc might overwrite it.
-                // But per request "Make it automatic", we enforce the formula.
-                if (parseFloat(prev.total_amount).toFixed(2) === formattedAmount) return prev;
-                return { ...prev, total_amount: formattedAmount };
+            setItems(prev => {
+                const newItems = [...prev];
+                // Only auto-set price if it's 0 (new item) or matches previous customer price logic
+                // For simplicity, we'll set it to customer default price if it's a new item or we change customer
+                // Ideally, we'd have a price list per size. For now, use customer.price as base
+                if (newItems[index].unit_price === 0) {
+                    newItems[index].unit_price = customer.price;
+                    newItems[index].total_price = newItems[index].quantity * customer.price;
+                }
+                return newItems;
             });
         }
-    }, [formData.customer_id, formData.quantity, formData.gas_return_kg, customers]);
+    };
+
+    useEffect(() => {
+        if (formData.customer_id && !sale) {
+             // On new sale, update price for initial empty item
+             updateItemPrice(0, formData.customer_id);
+        }
+    }, [formData.customer_id]);
+
+    const handleItemChange = (index: number, field: keyof SaleItem, value: any) => {
+        setItems(prev => {
+            const newItems = [...prev];
+            const item = { ...newItems[index], [field]: value };
+            
+            // Auto-calc total price for line
+            if (field === 'quantity' || field === 'unit_price') {
+                item.total_price = item.quantity * item.unit_price;
+            }
+            
+            newItems[index] = item;
+            return newItems;
+        });
+    };
+
+    const addItem = () => {
+        const customer = customers.find(c => c.id === formData.customer_id);
+        setItems([...items, { brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: customer?.price || 0, total_price: customer?.price || 0 }]);
+    };
+
+    const removeItem = (index: number) => {
+        setItems(items.filter((_, i) => i !== index));
+    };
+
+    const calculateGrandTotal = () => {
+        return items.reduce((acc, item) => acc + item.total_price, 0);
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -62,35 +99,76 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
         const customer = customers.find(c => c.id === formData.customer_id);
         if (!customer) return;
 
+        const finalTotal = calculateGrandTotal();
+
         const submissionData = {
             ...sale,
             customer_id: formData.customer_id,
-            quantity: parseInt(formData.quantity, 10),
             date: new Date(formData.date).toISOString(),
             payment_method: formData.payment_method,
-            unit_price: customer.price,
-            total_amount: parseFloat(formData.total_amount) || 0,
-            tank_brand: customer.tank_brand,
-            tank_size: customer.tank_size,
             invoice_type: formData.invoice_type,
             invoice_number: formData.invoice_number,
             gas_return_kg: parseFloat(formData.gas_return_kg) || undefined,
+            items: items,
+            // Summary fields for legacy support / simple view
+            quantity: items.reduce((acc, i) => acc + i.quantity, 0),
+            tank_brand: items[0]?.brand || Brand.OTHER,
+            tank_size: items[0]?.size || Size.OTHER,
+            unit_price: 0, // Mixed
+            total_amount: finalTotal,
         };
         onSave(submissionData as Sale | Omit<Sale, 'id'>);
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 h-[70vh] overflow-y-auto pr-2">
             <select name="customer_id" value={formData.customer_id} onChange={handleChange} className="w-full p-2 border rounded" required>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.branch}</option>)}
             </select>
-            <input name="quantity" type="number" value={formData.quantity} onChange={handleChange} placeholder="จำนวน" className="w-full p-2 border rounded" required min="1" />
+            
+            <div className="bg-slate-50 p-3 rounded border border-slate-200">
+                <div className="flex justify-between items-center mb-2">
+                    <label className="text-xs font-bold text-slate-600">รายการสินค้า</label>
+                    <button type="button" onClick={addItem} className="text-xs bg-sky-100 text-sky-600 px-2 py-1 rounded">+ เพิ่ม</button>
+                </div>
+                {items.map((item, index) => (
+                    <div key={index} className="flex flex-wrap items-end gap-2 mb-3 pb-3 border-b border-slate-100 last:border-0">
+                        <div className="w-1/3 flex-grow">
+                            <label className="text-[10px] text-gray-400">ยี่ห้อ</label>
+                            <select value={item.brand} onChange={(e) => handleItemChange(index, 'brand', e.target.value)} className="w-full p-1 text-xs border rounded">
+                                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        </div>
+                        <div className="w-1/3 flex-grow">
+                            <label className="text-[10px] text-gray-400">ขนาด</label>
+                            <select value={item.size} onChange={(e) => handleItemChange(index, 'size', e.target.value)} className="w-full p-1 text-xs border rounded">
+                                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                        <div className="w-16">
+                            <label className="text-[10px] text-gray-400">จำนวน</label>
+                            <input type="number" value={item.quantity} onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)} className="w-full p-1 text-xs border rounded" />
+                        </div>
+                        <div className="w-20">
+                            <label className="text-[10px] text-gray-400">ราคา/หน่วย</label>
+                            <input type="number" value={item.unit_price} onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)} className="w-full p-1 text-xs border rounded text-right" />
+                        </div>
+                        <div className="w-20">
+                             <label className="text-[10px] text-gray-400">รวม</label>
+                             <div className="text-xs font-bold text-right py-1">{item.total_price.toLocaleString()}</div>
+                        </div>
+                        <button type="button" onClick={() => removeItem(index)} className="text-red-400 hover:text-red-600 pb-1">
+                            <TrashIcon className="h-4 w-4" />
+                        </button>
+                    </div>
+                ))}
+            </div>
+
             <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="คืนเนื้อ (กก.) (ถ้ามี)" className="w-full p-2 border rounded" />
             
-            <div className="flex items-center space-x-2">
-                <span className="font-bold whitespace-nowrap">ยอดรวม:</span>
-                <input name="total_amount" type="number" step="0.01" value={formData.total_amount} onChange={handleChange} className="w-full p-2 border rounded font-bold text-green-600" placeholder="ยอดรวมสุทธิ" required />
-                <span className="font-bold">฿</span>
+            <div className="flex justify-between items-center bg-green-50 p-3 rounded border border-green-100">
+                <span className="font-bold text-green-800">ยอดรวมสุทธิ:</span>
+                <span className="font-bold text-xl text-green-600">{calculateGrandTotal().toLocaleString('th-TH', {minimumFractionDigits: 2})} ฿</span>
             </div>
 
             <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded">
@@ -230,6 +308,7 @@ const Transactions: React.FC = () => {
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Sale | Expense | null>(null);
   const [receiptData, setReceiptData] = useState<Sale | Expense | null>(null);
+  const [receiptA4Data, setReceiptA4Data] = useState<Sale | null>(null);
 
   const handleOpenFormModal = (item: Sale | Expense | null = null) => {
     setEditingItem(item);
@@ -247,6 +326,14 @@ const Transactions: React.FC = () => {
   
   const handleCloseReceiptModal = () => {
     setReceiptData(null);
+  };
+
+  const handleOpenReceiptA4Modal = (item: Sale) => {
+    setReceiptA4Data(item);
+  };
+
+  const handleCloseReceiptA4Modal = () => {
+    setReceiptA4Data(null);
   };
 
   const handleSave = async (data: Sale | Expense | Omit<Sale, 'id'> | Omit<Expense, 'id'>) => {
@@ -280,24 +367,34 @@ const Transactions: React.FC = () => {
     <div className="space-y-3">
         {sales.map((sale: Sale) => {
             const customer = getCustomerById(sale.customer_id);
+            const itemCount = sale.items?.length || 1;
             return (
                 <Card key={sale.id} className="!p-0">
                     <div className="p-4">
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="font-semibold pr-4">{customer?.name} ({customer?.branch})</p>
-                                <div className="flex items-center space-x-2 flex-wrap">
-                                    <p className="text-sm text-gray-500">{sale.quantity} x {sale.tank_brand} {sale.tank_size}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
+                                <div className="text-sm text-gray-500 mt-1">
+                                    {sale.items && sale.items.length > 0 ? (
+                                        sale.items.map((item, idx) => (
+                                            <div key={idx}>• {item.quantity} x {item.brand} {item.size}</div>
+                                        ))
+                                    ) : (
+                                        <div>{sale.quantity} x {sale.tank_brand} {sale.tank_size}</div>
+                                    )}
                                 </div>
-                                {sale.gas_return_kg && <p className="text-sm text-blue-600">คืนเนื้อ: {sale.gas_return_kg} กก.</p>}
+                                <div className="flex items-center space-x-2 mt-2">
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
+                                    {sale.gas_return_kg && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">คืนเนื้อ: {sale.gas_return_kg} กก.</span>}
+                                </div>
                                 <p className="text-xs text-gray-400 mt-1">{new Date(sale.date).toLocaleDateString('th-TH')} - {sale.invoice_number}</p>
                             </div>
                             <p className="text-lg font-bold text-green-600 whitespace-nowrap">+{sale.total_amount.toLocaleString('th-TH')} ฿</p>
                         </div>
                     </div>
                     <div className="bg-slate-50/70 px-4 py-2 flex justify-end space-x-3 items-center border-t border-slate-200/80">
-                        <button onClick={() => handleOpenReceiptModal(sale)} className="text-gray-500 hover:text-sky-500"><PrinterIcon /></button>
+                        <button onClick={() => handleOpenReceiptA4Modal(sale)} className="text-green-600 hover:text-green-700" title="พิมพ์ A4"><DocumentIcon /></button>
+                        <button onClick={() => handleOpenReceiptModal(sale)} className="text-gray-500 hover:text-sky-500" title="พิมพ์ใบเสร็จย่อ"><PrinterIcon /></button>
                         <button onClick={() => handleOpenFormModal(sale)} className="text-gray-500 hover:text-sky-500"><PencilIcon /></button>
                         <button onClick={() => deleteSale(sale.id)} className="text-gray-500 hover:text-red-500"><TrashIcon /></button>
                     </div>
@@ -345,6 +442,7 @@ const Transactions: React.FC = () => {
   }
 
   const customerForReceipt = receiptData && 'customer_id' in receiptData ? getCustomerById(receiptData.customer_id) : null;
+  const customerForReceiptA4 = receiptA4Data ? getCustomerById(receiptA4Data.customer_id) : null;
 
   return (
     <div>
@@ -378,6 +476,14 @@ const Transactions: React.FC = () => {
             <ExpenseReceipt expense={receiptData as Expense} />
         )}
       </Modal>
+
+      {/* A4 Invoice Modal - Full Screen Overlay */}
+      {receiptA4Data && customerForReceiptA4 && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-70 flex justify-center overflow-auto py-8 print:p-0 print:overflow-visible">
+             <button onClick={handleCloseReceiptA4Modal} className="fixed top-4 right-4 text-white text-4xl hover:text-gray-300 z-50 no-print">&times;</button>
+             <InvoiceA4 sale={receiptA4Data} customer={customerForReceiptA4} />
+        </div>
+      )}
     </div>
   );
 };

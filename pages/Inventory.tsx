@@ -16,7 +16,7 @@ const InventoryForm: React.FC<{
   category: InventoryCategory;
 }> = ({ item, onSave, onClose, category }) => {
   const [formData, setFormData] = useState(() => {
-    if (item) return { ...item, cost_price: item.cost_price?.toString() || '' };
+    if (item) return { ...item, cost_price: item.cost_price?.toString() || '', notes: item.notes || '' };
     return {
       category: category,
       tank_brand: category === InventoryCategory.GAS ? Brand.PTT : null,
@@ -26,29 +26,42 @@ const InventoryForm: React.FC<{
       full: 0,
       on_loan: 0,
       cost_price: '',
+      notes: '',
     };
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const submissionData = {
-      ...formData,
-      // Ensure valid data types
+    
+    const commonData = {
+      category: formData.category,
+      name: formData.name,
       total: parseInt(formData.total.toString(), 10) || 0,
       full: parseInt(formData.full.toString(), 10) || 0,
       on_loan: parseInt(formData.on_loan.toString(), 10) || 0,
       cost_price: parseFloat(formData.cost_price?.toString() || '0') || 0,
-      // Ensure nulls for non-gas items to avoid DB constraint issues (if relaxed)
       tank_brand: category === InventoryCategory.ACCESSORY ? null : formData.tank_brand,
       tank_size: category === InventoryCategory.ACCESSORY ? null : formData.tank_size,
+      notes: formData.notes,
     };
-    if (item) submissionData.id = item.id;
-    onSave(submissionData as InventoryItem | Omit<InventoryItem, 'id'>);
+
+    if (item) {
+        // When updating, we include the ID
+        const updateData: InventoryItem = {
+            ...commonData,
+            id: item.id,
+            created_at: item.created_at
+        };
+        onSave(updateData);
+    } else {
+        // When creating, we don't have ID
+        onSave(commonData as Omit<InventoryItem, 'id'>);
+    }
   };
 
   return (
@@ -74,6 +87,8 @@ const InventoryForm: React.FC<{
       
       <input name="cost_price" value={formData.cost_price} onChange={handleChange} placeholder="ราคาต้นทุน (บาท)" type="number" className="w-full p-2 border rounded" />
       
+      <textarea name="notes" value={formData.notes} onChange={handleChange} placeholder="Note / รายละเอียดเพิ่มเติม" className="w-full p-2 border rounded" rows={2} />
+
       <div className="flex justify-end space-x-2 mt-2">
         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">ยกเลิก</button>
         <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
@@ -154,6 +169,7 @@ const Inventory: React.FC = () => {
               <div><p className="text-xs text-blue-500">ถูกยืม</p><p className="font-bold text-xl text-blue-600">{item.on_loan}</p></div>
             </div>
             <p className="text-xs text-gray-400 mt-2">ต้นทุน: {item.cost_price?.toLocaleString() || 0} ฿</p>
+            {item.notes && <p className="text-xs text-gray-500 mt-1 italic">Note: {item.notes}</p>}
             <div className="absolute top-3 right-3 flex space-x-2">
               <button onClick={() => handleOpenModal(item)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
               <button onClick={() => deleteInventoryItem(item.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
