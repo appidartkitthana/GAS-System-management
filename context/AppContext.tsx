@@ -123,15 +123,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Sync Borrowed Tanks to Inventory "On Loan"
-  const syncInventoryLoans = async (oldBorrowed: BorrowedTank[] | undefined, newBorrowed: BorrowedTank[]) => {
+  const syncInventoryLoans = async (oldBorrowed: BorrowedTank[] | null | undefined, newBorrowed: BorrowedTank[] | null | undefined) => {
       const changes: { brand: Brand, size: Size, delta: number }[] = [];
+      const oldList = oldBorrowed || [];
+      const newList = newBorrowed || [];
 
       // Subtract old
-      oldBorrowed?.forEach(b => {
+      oldList.forEach(b => {
           changes.push({ brand: b.brand, size: b.size, delta: -b.quantity });
       });
       // Add new
-      newBorrowed.forEach(b => {
+      newList.forEach(b => {
           changes.push({ brand: b.brand, size: b.size, delta: b.quantity });
       });
 
@@ -145,12 +147,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       for (const change of Object.values(consolidated)) {
           if (change.delta === 0) continue;
+          
           const item = inventory.find(i => i.tank_brand === change.brand && i.tank_size === change.size);
           if (item) {
              const newLoan = (item.on_loan || 0) + change.delta;
-             const { data, error } = await supabaseClient.from('inventory').update({ on_loan: newLoan }).eq('id', item.id).select().single();
+             // Prevent negative loans if data is inconsistent
+             const finalLoan = Math.max(0, newLoan);
+
+             const { data, error } = await supabaseClient.from('inventory').update({ on_loan: finalLoan }).eq('id', item.id).select().single();
              if (!error && data) {
                  setInventory(prev => prev.map(i => i.id === item.id ? data : i));
+             } else if (error) {
+                 console.error("Failed to sync inventory loan:", error);
+                 alert(`ไม่สามารถอัปเดตสต็อกถังยืมได้: ${formatSupabaseError(error)}`);
              }
           }
       }
