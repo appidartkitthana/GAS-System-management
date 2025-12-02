@@ -48,6 +48,8 @@ const Settings: React.FC = () => {
       // Define Columns to check
       const checks = [
           { table: 'customers', column: 'borrowed_tanks', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN borrowed_tanks jsonb;' },
+          { table: 'customers', column: 'price_list', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN price_list jsonb;' },
+          { table: 'customers', column: 'notes', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN notes text;' },
           { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN category text;' },
           { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
           { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN cost_price numeric;' },
@@ -58,6 +60,7 @@ const Settings: React.FC = () => {
           { table: 'expenses', column: 'gas_return_amount', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_amount numeric;' },
           { table: 'sales', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN cost_price numeric;' },
           { table: 'sales', column: 'items', type: 'jsonb', fix: 'ALTER TABLE public.sales ADD COLUMN items jsonb;' },
+          { table: 'sales', column: 'gas_return_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN gas_return_price numeric;' },
       ];
 
       for (const check of checks) {
@@ -70,6 +73,33 @@ const Settings: React.FC = () => {
           }
       }
 
+      // Special Check: Verify 'expense.type' allows arbitrary text (not strict enum)
+      addMessage('- ตรวจสอบประเภทคอลัมน์ expenses.type...');
+      const { error: customTypeError } = await supabaseClient.from('expenses').insert({
+          date: new Date().toISOString(),
+          type: 'TEST_CUSTOM_TYPE_XYZ', // Try inserting a non-enum value
+          description: 'Type Check',
+          amount: 0,
+          payment_method: PaymentMethod.CASH,
+      }).select('id').single();
+
+      if (customTypeError) {
+          if (customTypeError.code === '22P02' || customTypeError.message.includes('invalid input value for enum')) {
+              schemaErrors.push('❌ ตาราง expenses.type ถูกล็อคเป็น Enum (ต้องเปลี่ยนเป็น Text)');
+              schemaFixes.push({ 
+                  table: 'expenses', 
+                  fix: `ALTER TABLE public.expenses ALTER COLUMN type TYPE text; DROP TYPE IF EXISTS expense_type;` 
+              });
+          } else {
+              // Other error, log it but maybe not schema related directly
+              console.warn("Expense Type Check Warning:", customTypeError);
+          }
+      } else {
+          // Success, cleanup immediately
+          await supabaseClient.from('expenses').delete().eq('type', 'TEST_CUSTOM_TYPE_XYZ');
+      }
+
+
       // Special Check for Nullable constraints in Inventory (for Accessories)
       addMessage('- ทดสอบการบันทึกอุปกรณ์ (Accessory)...');
       const { error: accError } = await supabaseClient.from('inventory').insert({
@@ -80,7 +110,10 @@ const Settings: React.FC = () => {
           on_loan: 0,
           tank_brand: null, // Should be allowed
           tank_size: null,   // Should be allowed
-          notes: 'Test Note'
+          // Note: We intentionally DO NOT include 'notes' here. 
+          // If the 'notes' column is missing, the check above catches it. 
+          // Including it here would cause this INSERT to fail with "column not found" 
+          // before we can report the missing column error from the loop above.
       }).select().single();
 
       if (accError) {
@@ -89,7 +122,10 @@ const Settings: React.FC = () => {
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_brand DROP NOT NULL;' });
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_size DROP NOT NULL;' });
            } else {
-               throw { stage: 'INSERT Accessory', table: 'inventory', originalError: accError };
+               // Ignore unique constraint error if it clashes with existing test data
+               if (accError.code !== '23505') {
+                   throw { stage: 'INSERT Accessory', table: 'inventory', originalError: accError };
+               }
            }
       } else {
            // Clean up immediately by name
@@ -112,7 +148,9 @@ const Settings: React.FC = () => {
           price: 0, 
           tank_brand: Brand.OTHER, 
           tank_size: Size.OTHER,
-          borrowed_tanks: [] 
+          borrowed_tanks: [],
+          price_list: [],
+          notes: 'Test'
       }).select('id').single();
       if (cInsertErr) throw { stage: 'INSERT', table: 'customers', originalError: cInsertErr };
       customerId = cData.id;
@@ -127,7 +165,7 @@ const Settings: React.FC = () => {
           tank_size: Size.OTHER, 
           category: InventoryCategory.GAS,
           cost_price: 0,
-          notes: 'Test'
+          notes: 'Test' 
       }).select('id').single();
       if (iInsertErr) throw { stage: 'INSERT', table: 'inventory', originalError: iInsertErr };
       inventoryId = iData.id;
@@ -162,7 +200,8 @@ const Settings: React.FC = () => {
           invoice_type: InvoiceType.CASH, 
           invoice_number: testId,
           cost_price: 0,
-          items: []
+          items: [],
+          gas_return_price: 0
       }).select('id').single();
       if (sInsertErr) throw { stage: 'INSERT', table: 'sales', originalError: sInsertErr };
       saleId = sData.id;
