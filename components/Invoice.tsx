@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Sale, Customer, InvoiceType, CompanyInfo } from '../types';
 import { SELLER_INFO } from '../constants';
@@ -11,9 +12,14 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
   const seller = SELLER_INFO;
   const isTaxInvoice = sale.invoice_type === InvoiceType.TAX_INVOICE;
 
-  const subtotal = sale.total_amount;
-  const vatAmount = isTaxInvoice ? subtotal * 0.07 : 0;
-  const grandTotal = isTaxInvoice ? subtotal + vatAmount : subtotal;
+  const items = sale.items && sale.items.length > 0 ? sale.items : [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }];
+
+  const subtotal = items.reduce((acc, item) => acc + item.total_price, 0);
+  const returnDeduction = (sale.gas_return_kg || 0) * (sale.gas_return_price || 0);
+  const netTotal = subtotal - returnDeduction;
+
+  const vatAmount = isTaxInvoice ? netTotal * 0.07 : 0;
+  const grandTotal = isTaxInvoice ? netTotal + vatAmount : netTotal;
 
   const handlePrint = () => {
     window.print();
@@ -24,6 +30,7 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
       <div id="invoice-content" className="p-4 bg-white text-black text-sm font-sans">
         <style>{`
           @media print {
+            @page { margin: 0; size: auto; }
             body * {
               visibility: hidden;
             }
@@ -35,6 +42,8 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
               left: 0;
               top: 0;
               width: 100%;
+              margin: 0;
+              padding: 15px;
             }
             .no-print {
               display: none;
@@ -82,18 +91,20 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-gray-300">
-                <td className="py-2">แก๊สหุงต้ม {sale.tank_brand} {sale.tank_size}</td>
-                <td className="text-right py-2">{sale.quantity}</td>
-                <td className="text-right py-2">{sale.unit_price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                <td className="text-right py-2">{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-              </tr>
+              {items.map((item, idx) => (
+                  <tr key={idx} className="border-b border-gray-100">
+                    <td className="py-2">แก๊สหุงต้ม {item.brand} {item.size}</td>
+                    <td className="text-right py-2">{item.quantity}</td>
+                    <td className="text-right py-2">{item.unit_price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                    <td className="text-right py-2">{item.total_price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+              ))}
               {sale.gas_return_kg && (
-                 <tr className="border-b border-gray-300">
-                    <td className="py-2 text-blue-600">คืนเนื้อ (กก.)</td>
+                 <tr className="border-t border-gray-300">
+                    <td className="py-2 text-blue-600">หัก คืนเนื้อ (กก.)</td>
                     <td className="text-right py-2 text-blue-600">{sale.gas_return_kg.toFixed(2)}</td>
-                    <td className="py-2"></td>
-                    <td className="py-2"></td>
+                    <td className="text-right py-2 text-blue-600">@{sale.gas_return_price?.toFixed(2)}</td>
+                    <td className="text-right py-2 text-blue-600">-{returnDeduction.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
                  </tr>
               )}
             </tbody>
@@ -104,7 +115,7 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
           <div className="w-1/2">
             <div className="flex justify-between">
               <span>รวมเป็นเงิน</span>
-              <span>{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              <span>{netTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
             </div>
             {isTaxInvoice && (
               <div className="flex justify-between">

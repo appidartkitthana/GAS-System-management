@@ -44,7 +44,7 @@ const FinancialBarChart: React.FC<{ income: number; expense: number }> = ({ inco
 
 const DonutChart: React.FC<{ data: { name: string, value: number, color: string }[] }> = ({ data }) => {
     const total = data.reduce((acc, item) => acc + item.value, 0);
-    const circumference = 15.915 * 2 * Math.PI;
+    let accumulatedPercentage = 0;
     if (total === 0) {
         return (
             <div className="relative w-32 h-32">
@@ -55,7 +55,6 @@ const DonutChart: React.FC<{ data: { name: string, value: number, color: string 
             </div>
         )
     }
-    let accumulatedPercentage = 0;
     return (
         <div className="relative w-32 h-32">
             <svg className="w-full h-full" viewBox="0 0 36 36" style={{ transform: 'rotate(-90deg)' }}>
@@ -77,7 +76,7 @@ const DonutChart: React.FC<{ data: { name: string, value: number, color: string 
 };
 
 const Dashboard: React.FC = () => {
-    const { dailySummary, monthlySummary, inventory, reportDate, setReportDate } = useAppContext();
+    const { dailySummary, monthlySummary, reportDate, setReportDate } = useAppContext();
     const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,41 +153,27 @@ const Dashboard: React.FC = () => {
         {viewMode === 'monthly' && (
             <>
                 <Card>
-                    <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปรายจ่ายแยกตามประเภท</h2>
+                    <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปรายจ่าย</h2>
                     <table className="w-full text-sm text-left">
                         <thead className="text-gray-500 bg-gray-50 border-b">
                             <tr>
-                                <th className="py-2 px-2">ประเภท</th>
-                                <th className="py-2 px-2 text-right">ครั้ง</th>
-                                <th className="py-2 px-2 text-right">ถัง (เติม)</th>
-                                <th className="py-2 px-2 text-right">ยอดเงิน</th>
+                                <th className="py-2 px-1">ประเภท</th>
+                                <th className="py-2 px-1 text-right">เงินสด</th>
+                                <th className="py-2 px-1 text-right">เครดิต</th>
+                                <th className="py-2 px-1 text-right">รวม</th>
                             </tr>
                         </thead>
                         <tbody>
                             {monthlySummary.expenseBreakdown.map((item, idx) => (
                                 <tr key={idx} className="border-b last:border-0">
-                                    <td className="py-2 px-2">{item.type}</td>
-                                    <td className="py-2 px-2 text-right">{item.count}</td>
-                                    <td className="py-2 px-2 text-right text-gray-500">
-                                        {item.totalGasQty > 0 ? item.totalGasQty : '-'}
-                                    </td>
-                                    <td className="py-2 px-2 text-right font-bold text-red-600">
-                                        {item.totalAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})}
+                                    <td className="py-2 px-1">{item.type}</td>
+                                    <td className="py-2 px-1 text-right text-lime-600">{item.cashAmount.toLocaleString('th-TH', {maximumFractionDigits:0})}</td>
+                                    <td className="py-2 px-1 text-right text-blue-600">{item.creditAmount.toLocaleString('th-TH', {maximumFractionDigits:0})}</td>
+                                    <td className="py-2 px-1 text-right font-bold text-red-600">
+                                        {item.totalAmount.toLocaleString('th-TH', {minimumFractionDigits: 0})}
                                     </td>
                                 </tr>
                             ))}
-                             <tr className="bg-slate-100 font-bold">
-                                <td className="py-2 px-2">รวมทั้งสิ้น</td>
-                                <td className="py-2 px-2 text-right">
-                                     {monthlySummary.expenseBreakdown.reduce((acc, i) => acc + i.count, 0)}
-                                </td>
-                                <td className="py-2 px-2 text-right">
-                                     {monthlySummary.expenseBreakdown.reduce((acc, i) => acc + i.totalGasQty, 0)}
-                                </td>
-                                <td className="py-2 px-2 text-right text-red-600">
-                                    {monthlySummary.expense.toLocaleString('th-TH', {minimumFractionDigits: 2})}
-                                </td>
-                            </tr>
                         </tbody>
                     </table>
                 </Card>
@@ -208,7 +193,10 @@ const Dashboard: React.FC = () => {
                             <tbody>
                                 {monthlySummary.customerStats.length > 0 ? monthlySummary.customerStats.map(c => (
                                     <tr key={c.id} className="border-b last:border-0">
-                                        <td className="py-2 px-2">{c.name}</td>
+                                        <td className="py-2 px-2">
+                                            <div>{c.name}</div>
+                                            <div className="text-xs text-gray-400">{c.branch}</div>
+                                        </td>
                                         <td className="py-2 px-2 text-right">{c.tanks}</td>
                                         <td className="py-2 px-2 text-right">{c.total.toLocaleString('th-TH')}</td>
                                         <td className="py-2 px-2 text-right font-bold text-sky-600">{c.profit.toLocaleString('th-TH')}</td>
@@ -219,22 +207,35 @@ const Dashboard: React.FC = () => {
                     </div>
                 </Card>
                 <Card>
-                     <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปเติมแก๊ส & คืนเนื้อ</h2>
-                     <div className="grid grid-cols-2 gap-4 mb-4">
+                     <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปเติมแก๊ส (ถัง)</h2>
+                     <div className="text-sm space-y-2">
+                         <div className="flex justify-between font-semibold border-b pb-1 text-gray-500">
+                             <span>ขนาด</span>
+                             <div className="flex gap-4">
+                                 <span className="text-lime-600 w-12 text-right">เงินสด</span>
+                                 <span className="text-blue-600 w-12 text-right">เครดิต</span>
+                                 <span className="w-12 text-right">รวม</span>
+                             </div>
+                         </div>
+                         {monthlySummary.refillStats.map(r => (
+                             <div key={r.size} className="flex justify-between">
+                                 <span>{r.size}</span>
+                                 <div className="flex gap-4">
+                                     <span className="text-lime-600 w-12 text-right">{r.cashCount}</span>
+                                     <span className="text-blue-600 w-12 text-right">{r.creditCount}</span>
+                                     <span className="font-bold w-12 text-right">{r.count}</span>
+                                 </div>
+                             </div>
+                         ))}
+                     </div>
+                     <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
                          <div className="text-center p-2 bg-slate-100 rounded">
                              <p className="text-xs text-gray-500">น้ำหนักคืนรวม</p>
                              <p className="font-bold text-blue-600">{monthlySummary.gasReturnKg.toFixed(2)} กก.</p>
                          </div>
-                     </div>
-                     <div className="border-t pt-2">
-                         <p className="text-sm font-semibold mb-2">จำนวนถังที่เติม</p>
-                         <div className="space-y-1">
-                             {monthlySummary.refillStats.map(r => (
-                                 <div key={r.size} className="flex justify-between text-sm">
-                                     <span>{r.size}</span>
-                                     <span className="font-bold">{r.count} ถัง</span>
-                                 </div>
-                             ))}
+                         <div className="text-center p-2 bg-slate-100 rounded">
+                             <p className="text-xs text-gray-500">มูลค่าคืนเนื้อ</p>
+                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnValue.toLocaleString()} ฿</p>
                          </div>
                      </div>
                 </Card>

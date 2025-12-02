@@ -56,17 +56,25 @@ export interface BorrowedTank {
   quantity: number;
 }
 
+export interface CustomerPriceItem {
+  brand: Brand;
+  size: Size;
+  price: number;
+}
+
 export interface Customer {
   id: string;
   created_at?: string;
   name: string;
   branch: string;
-  price: number; // Selling price (Tax Included)
+  price: number; // Default/Base Selling price
   tank_brand: Brand; // Default preference
   tank_size: Size; // Default preference
-  borrowed_tanks?: BorrowedTank[]; // New: Array of borrowed items
+  borrowed_tanks?: BorrowedTank[]; 
+  price_list?: CustomerPriceItem[]; // New: Specific price list
   address?: string;
   tax_id?: string;
+  notes?: string; // New: Notes
 }
 
 export interface SaleItem {
@@ -93,7 +101,8 @@ export interface Sale {
   invoice_type: InvoiceType;
   invoice_number: string;
   gas_return_kg?: number;
-  items?: SaleItem[]; // New: List of items in this sale
+  gas_return_price?: number; // New: Price per KG for return
+  items?: SaleItem[]; 
 }
 
 export interface RefillItem {
@@ -107,16 +116,15 @@ export interface Expense {
   id: string;
   created_at?: string;
   date: string; // ISO string
-  type: string; // Changed from Enum to string to allow custom types
-  description: string; // Can be used for Vendor Name
-  payee?: string; // New: Vendor/Receiver Name
+  type: string; 
+  description: string; 
+  payee?: string; 
   amount: number;
   payment_method: PaymentMethod;
-  // New: For Refill expenses, we use a JSON structure to store multiple lines
   refill_details?: RefillItem[]; 
   gas_return_kg?: number;
   gas_return_amount?: number;
-  // Legacy fields (Made optional to support legacy code in AppContext)
+  // Legacy fields
   refill_tank_brand?: Brand;
   refill_tank_size?: Size;
   refill_quantity?: number;
@@ -125,13 +133,13 @@ export interface Expense {
 export interface InventoryItem {
   id: string;
   created_at?: string;
-  category: InventoryCategory; // New
-  name?: string; // For Accessories
-  tank_brand?: Brand; // Nullable for Accessories
-  tank_size?: Size; // Nullable for Accessories
-  cost_price?: number; // New: Standard Cost for profit calc
+  category: InventoryCategory; 
+  name?: string; 
+  tank_brand?: Brand; 
+  tank_size?: Size; 
+  cost_price?: number; 
   total: number;
   full: number;
   on_loan: number;
-  notes?: string; // New: Additional details/notes
+  notes?: string;
 }

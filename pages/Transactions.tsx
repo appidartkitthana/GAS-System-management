@@ -20,7 +20,6 @@ import { formatDateForInput } from '../lib/utils';
 const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, 'id'>) => void; onClose: () => void; }> = ({ sale, onSave, onClose }) => {
     const { customers } = useAppContext();
     
-    // If existing sale, populate items. If no items (legacy), create one from the summary fields.
     const initialItems: SaleItem[] = sale?.items && sale.items.length > 0 
         ? sale.items 
         : (sale ? [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }] 
@@ -33,23 +32,25 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
         invoice_type: sale?.invoice_type || InvoiceType.CASH,
         invoice_number: sale?.invoice_number || '',
         gas_return_kg: sale?.gas_return_kg?.toString() || '',
+        gas_return_price: sale?.gas_return_price?.toString() || '',
     });
 
     const [items, setItems] = useState<SaleItem[]>(initialItems);
 
-    // Helper to get customer specific price if needed, or just keep existing
-    const updateItemPrice = (index: number, customerId: string) => {
+    const updateItemPrice = (index: number, customerId: string, brand: Brand, size: Size) => {
         const customer = customers.find(c => c.id === customerId);
         if (customer) {
             setItems(prev => {
                 const newItems = [...prev];
-                // Only auto-set price if it's 0 (new item) or matches previous customer price logic
-                // For simplicity, we'll set it to customer default price if it's a new item or we change customer
-                // Ideally, we'd have a price list per size. For now, use customer.price as base
-                if (newItems[index].unit_price === 0) {
-                    newItems[index].unit_price = customer.price;
-                    newItems[index].total_price = newItems[index].quantity * customer.price;
+                // Check if customer has specific price
+                let price = customer.price; // Default
+                if (customer.price_list) {
+                    const specificPrice = customer.price_list.find(p => p.brand === brand && p.size === size);
+                    if (specificPrice) price = specificPrice.price;
                 }
+                
+                newItems[index].unit_price = price;
+                newItems[index].total_price = newItems[index].quantity * price;
                 return newItems;
             });
         }
@@ -58,7 +59,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
     useEffect(() => {
         if (formData.customer_id && !sale) {
              // On new sale, update price for initial empty item
-             updateItemPrice(0, formData.customer_id);
+             updateItemPrice(0, formData.customer_id, items[0].brand, items[0].size);
         }
     }, [formData.customer_id]);
 
@@ -73,13 +74,44 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             }
             
             newItems[index] = item;
+            
+            // If Brand or Size Changed, try to fetch price again
+            if (field === 'brand' || field === 'size') {
+                 // We need to defer this slightly or just call update logic directly.
+                 // Ideally separate function, but here we can just do it next render cycle or manually invoke
+                 // Simpler: Just rely on user to check price or complex effect.
+                 // Let's do instant update if unit_price wasn't manually touched? Hard to track.
+                 // Force update from customer price list:
+                 const customer = customers.find(c => c.id === formData.customer_id);
+                 if (customer && customer.price_list) {
+                     const p = customer.price_list.find(x => x.brand === item.brand && x.size === item.size);
+                     if (p) {
+                         item.unit_price = p.price;
+                         item.total_price = item.quantity * p.price;
+                     } else {
+                         // Revert to base price if defined, or keep current? 
+                         // Let's default to base price if specific not found
+                         item.unit_price = customer.price;
+                         item.total_price = item.quantity * customer.price;
+                     }
+                 }
+            }
             return newItems;
         });
     };
 
     const addItem = () => {
         const customer = customers.find(c => c.id === formData.customer_id);
-        setItems([...items, { brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: customer?.price || 0, total_price: customer?.price || 0 }]);
+        const newItem = { brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: customer?.price || 0, total_price: customer?.price || 0 };
+        // Check for specific price
+        if (customer && customer.price_list) {
+            const p = customer.price_list.find(x => x.brand === Brand.PTT && x.size === Size.S48);
+            if (p) {
+                newItem.unit_price = p.price;
+                newItem.total_price = p.price;
+            }
+        }
+        setItems([...items, newItem]);
     };
 
     const removeItem = (index: number) => {
@@ -87,7 +119,11 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
     };
 
     const calculateGrandTotal = () => {
-        return items.reduce((acc, item) => acc + item.total_price, 0);
+        const itemsTotal = items.reduce((acc, item) => acc + item.total_price, 0);
+        const returnKg = parseFloat(formData.gas_return_kg) || 0;
+        const returnPrice = parseFloat(formData.gas_return_price) || 0;
+        const deduction = returnKg * returnPrice;
+        return itemsTotal - deduction;
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -109,12 +145,13 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             invoice_type: formData.invoice_type,
             invoice_number: formData.invoice_number,
             gas_return_kg: parseFloat(formData.gas_return_kg) || undefined,
+            gas_return_price: parseFloat(formData.gas_return_price) || undefined,
             items: items,
-            // Summary fields for legacy support / simple view
+            // Summary fields
             quantity: items.reduce((acc, i) => acc + i.quantity, 0),
             tank_brand: items[0]?.brand || Brand.OTHER,
             tank_size: items[0]?.size || Size.OTHER,
-            unit_price: 0, // Mixed
+            unit_price: 0, 
             total_amount: finalTotal,
         };
         onSave(submissionData as Sale | Omit<Sale, 'id'>);
@@ -164,7 +201,21 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 ))}
             </div>
 
-            <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="คืนเนื้อ (กก.) (ถ้ามี)" className="w-full p-2 border rounded" />
+            <div className="bg-blue-50 p-3 rounded border border-blue-100 grid grid-cols-2 gap-2">
+                <div>
+                     <label className="text-xs font-bold text-blue-800">น้ำหนักคืน (กก.)</label>
+                     <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1" />
+                </div>
+                <div>
+                     <label className="text-xs font-bold text-blue-800">ส่วนลดคืนเนื้อ (บาท/กก.)</label>
+                     <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1" />
+                </div>
+                {(parseFloat(formData.gas_return_kg) > 0 || parseFloat(formData.gas_return_price) > 0) && (
+                    <div className="col-span-2 text-right text-sm text-blue-700">
+                        มูลค่าส่วนลด: <span className="font-bold">-{( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString()} ฿</span>
+                    </div>
+                )}
+            </div>
             
             <div className="flex justify-between items-center bg-green-50 p-3 rounded border border-green-100">
                 <span className="font-bold text-green-800">ยอดรวมสุทธิ:</span>
@@ -210,7 +261,6 @@ const ExpenseForm: React.FC<{ expense: Expense | null; onSave: (data: Expense | 
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
-    // Refill Items Logic
     const addRefillItem = () => {
         setRefillItems([...refillItems, { brand: Brand.PTT, size: Size.S48, quantity: 1 }]);
     };
@@ -259,7 +309,7 @@ const ExpenseForm: React.FC<{ expense: Expense | null; onSave: (data: Expense | 
             )}
             
             <input name="description" value={formData.description} onChange={handleChange} placeholder="รายละเอียด" className="w-full p-2 border rounded" required />
-            <input name="payee" value={formData.payee} onChange={handleChange} placeholder="ร้านค้า / ผู้รับเงิน" className="w-full p-2 border rounded" />
+            <input name="payee" value={formData.payee} onChange={handleChange} placeholder="ร้านค้า / ผู้รับเงิน (ไม่บังคับ)" className="w-full p-2 border rounded" />
             <input name="amount" type="number" value={formData.amount} onChange={handleChange} placeholder="จำนวนเงินรวม" className="w-full p-2 border rounded" required />
             <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded">
                 {Object.values(PaymentMethod).map(pm => <option key={pm} value={pm}>{pm}</option>)}
@@ -367,13 +417,14 @@ const Transactions: React.FC = () => {
     <div className="space-y-3">
         {sales.map((sale: Sale) => {
             const customer = getCustomerById(sale.customer_id);
-            const itemCount = sale.items?.length || 1;
+            const customerDisplay = customer ? `${customer.name} ${customer.branch ? '(' + customer.branch + ')' : ''}` : 'ลูกค้าทั่วไป';
+            
             return (
                 <Card key={sale.id} className="!p-0">
                     <div className="p-4">
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="font-semibold pr-4">{customer?.name} ({customer?.branch})</p>
+                                <p className="font-semibold pr-4">{customerDisplay}</p>
                                 <div className="text-sm text-gray-500 mt-1">
                                     {sale.items && sale.items.length > 0 ? (
                                         sale.items.map((item, idx) => (

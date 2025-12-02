@@ -13,21 +13,22 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
   const seller = SELLER_INFO;
   const isTaxInvoice = sale.invoice_type === InvoiceType.TAX_INVOICE;
   
-  // Calculate VAT (assuming unit_price includes VAT)
-  // Pre-VAT = Total / 1.07
-  // VAT = Total - Pre-VAT
-  const totalAmount = sale.total_amount;
-  const preVatAmount = totalAmount / 1.07;
-  const vatAmount = totalAmount - preVatAmount;
+  // Calculate Totals
+  const items = (sale.items && sale.items.length > 0) 
+    ? sale.items 
+    : [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }];
+
+  const subTotal = items.reduce((acc, item) => acc + item.total_price, 0);
+  const returnDeduction = (sale.gas_return_kg || 0) * (sale.gas_return_price || 0);
+  const totalAfterReturn = subTotal - returnDeduction;
+
+  const preVatAmount = totalAfterReturn / 1.07;
+  const vatAmount = totalAfterReturn - preVatAmount;
+  const finalTotal = totalAfterReturn;
 
   const handlePrint = () => {
     window.print();
   };
-
-  // Determine items to render: if sale.items exists use it, otherwise use legacy single item
-  const itemsToRender = (sale.items && sale.items.length > 0) 
-    ? sale.items 
-    : [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }];
 
   return (
     <div className="bg-gray-200 p-4 min-h-screen flex flex-col items-center overflow-auto">
@@ -37,6 +38,10 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
             margin: 0;
           }
           @media print {
+            html, body {
+               height: 100%;
+               overflow: hidden;
+            }
             body {
               background: white;
             }
@@ -51,25 +56,36 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
               left: 0;
               top: 0;
               width: 210mm;
-              min-height: 297mm;
+              height: 297mm;
               margin: 0;
-              padding: 10mm; /* Custom margin inside the A4 sheet */
+              padding: 10mm 15mm; /* Adjusted margins */
               background: white;
               box-shadow: none;
               border-radius: 0;
+              transform: scale(1);
+              transform-origin: top left;
             }
             .no-print {
               display: none !important;
             }
           }
         `}</style>
+      
+      {/* Print Instructions for User */}
+      <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4 max-w-[210mm] no-print">
+          <p className="font-bold">คำแนะนำการพิมพ์:</p>
+          <ul className="list-disc ml-5 text-sm">
+              <li>ตั้งค่าขนาดกระดาษเป็น <strong>A4</strong></li>
+              <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default</strong></li>
+              <li>Scale: <strong>100%</strong> หรือ <strong>Fit to Paper</strong></li>
+          </ul>
+      </div>
 
       <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700">
         
         {/* Header */}
         <div className="flex justify-between items-start mb-6">
             <div className="flex items-center">
-                {/* Logo Placeholder */}
                 <div className="w-16 h-16 rounded-full border-2 border-sky-600 flex items-center justify-center text-sky-700 font-bold text-xs mr-4">
                     LOGO
                 </div>
@@ -111,10 +127,6 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
                     <span className="font-bold">วันที่ออก :</span>
                     <span>{new Date(sale.date).toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>
                 </div>
-                <div className="flex justify-between">
-                    <span className="font-bold">อ้างอิง :</span>
-                    <span>-</span>
-                </div>
             </div>
         </div>
 
@@ -151,13 +163,11 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
                     <th className="py-2 px-2 border border-green-200 w-24 text-right">ราคา</th>
                     <th className="py-2 px-2 border border-green-200 w-20 text-right">ส่วนลด</th>
                     <th className="py-2 px-2 border border-green-200 w-16 text-center">VAT</th>
-                    <th className="py-2 px-2 border border-green-200 w-32 text-right">มูลค่าก่อนภาษี</th>
+                    <th className="py-2 px-2 border border-green-200 w-32 text-right">จำนวนเงิน</th>
                 </tr>
             </thead>
             <tbody>
-                {itemsToRender.map((item, idx) => {
-                    const itemPreVat = item.total_price / 1.07;
-                    const itemUnitPricePreVat = item.unit_price / 1.07;
+                {items.map((item, idx) => {
                     return (
                         <tr key={idx}>
                             <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">{idx + 1}.</td>
@@ -166,16 +176,16 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
                                 <p className="text-gray-500 text-xs">แบรนด์: {item.brand}</p>
                             </td>
                             <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.quantity.toFixed(2)}</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{itemUnitPricePreVat.toLocaleString('th-TH', {minimumFractionDigits: 3})}</td>
+                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
                             <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">0.00</td>
                             <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">7%</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{itemPreVat.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.total_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
                         </tr>
                     );
                 })}
                 
                 {/* Spacer Rows to fill A4 height */}
-                {[...Array(Math.max(0, 8 - itemsToRender.length))].map((_, i) => (
+                {[...Array(Math.max(0, 8 - items.length))].map((_, i) => (
                     <tr key={`spacer-${i}`}>
                         <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
                         <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
@@ -196,8 +206,14 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         <div className="flex items-start mb-8">
             {/* Left Side: Summary Text */}
             <div className="flex-grow pr-8 space-y-1">
+                {sale.gas_return_kg && (
+                    <div className="flex justify-between text-sm text-blue-700 bg-blue-50 p-2 rounded mb-2">
+                        <span>รายการหัก: คืนเนื้อแก๊ส ({sale.gas_return_kg} กก. @ {sale.gas_return_price})</span>
+                        <span>-{returnDeduction.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
+                    </div>
+                )}
                 <div className="flex justify-between text-xs text-gray-600">
-                    <span>มูลค่าที่คำนวณภาษี 7%</span>
+                    <span>มูลค่าก่อนภาษี</span>
                     <span>{preVatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
                 </div>
                  <div className="flex justify-between text-xs text-gray-600">
@@ -205,25 +221,21 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
                     <span>{vatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
                 </div>
                  <div className="flex justify-between font-bold text-gray-800 pt-2">
-                    <span>จำนวนเงินทั้งสิ้น</span>
-                    <span>{thaiBahtText(totalAmount)}</span>
+                    <span>จำนวนเงินทั้งสิ้น (ตัวอักษร)</span>
+                    <span className="text-right">{thaiBahtText(finalTotal)}</span>
                 </div>
             </div>
 
             {/* Right Side: Totals */}
-            <div className="w-64 bg-gray-50 rounded-lg overflow-hidden">
+            <div className="w-64 bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
                 <div className="flex justify-between items-center bg-green-100/50 p-3 border-b border-green-100">
                     <span className="font-bold text-gray-700">จำนวนเงินทั้งสิ้น</span>
-                    <span className="font-bold text-xl text-gray-800">{totalAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
+                    <span className="font-bold text-xl text-gray-800">{finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
                 </div>
                 <div className="p-3 space-y-2">
                      <div className="flex justify-between text-sm">
                         <span>จำนวนเงินที่ถูกหัก ณ ที่จ่าย</span>
                         <span>0.00 บาท</span>
-                    </div>
-                     <div className="flex justify-between text-sm font-bold">
-                        <span>จำนวนเงินที่ชำระ</span>
-                        <span>{totalAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
                     </div>
                 </div>
             </div>
@@ -235,26 +247,16 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
             <div className="flex-grow grid grid-cols-2 gap-4">
                 <div>
                      <p><span className="font-semibold">วันที่ชำระ :</span> {new Date(sale.date).toLocaleDateString('th-TH')}</p>
-                     <p><span className="font-semibold">จำนวนเงิน :</span> {totalAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</p>
+                     <p><span className="font-semibold">จำนวนเงิน :</span> {finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</p>
                 </div>
                 <div>
-                    {/* Placeholder for Bank info */}
                     <p><span className="font-semibold">โดย :</span> {sale.payment_method}</p>
                 </div>
             </div>
         </div>
 
-        {/* Footer Notes */}
-        <div className="text-xs text-gray-500 mb-12 flex">
-            <div className="mr-2">💬 หมายเหตุ</div>
-            <div>
-                ใบเสร็จรับเงินฉบับนี้จะสมบูรณ์ต่อเมื่อได้เรียกเก็บเงินจากท่านเป็นที่เรียบร้อยแล้ว<br/>
-                ได้รับสินค้าตามรายการข้างต้นเป็นที่ถูกต้องเรียบร้อย
-            </div>
-        </div>
-
         {/* Signatures */}
-        <div className="grid grid-cols-4 gap-4 text-center text-xs">
+        <div className="grid grid-cols-4 gap-4 text-center text-xs mt-auto">
              <div className="col-span-1">
                  <div className="h-16 border-b border-dotted border-gray-400 mb-2"></div>
                  <p>ผู้ออกเอกสาร</p>

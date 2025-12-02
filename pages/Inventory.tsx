@@ -51,7 +51,6 @@ const InventoryForm: React.FC<{
     };
 
     if (item) {
-        // When updating, we include the ID
         const updateData: InventoryItem = {
             ...commonData,
             id: item.id,
@@ -59,7 +58,6 @@ const InventoryForm: React.FC<{
         };
         onSave(updateData);
     } else {
-        // When creating, we don't have ID
         onSave(commonData as Omit<InventoryItem, 'id'>);
     }
   };
@@ -127,10 +125,13 @@ const Inventory: React.FC = () => {
   };
 
   const summary = useMemo(() => {
-    const totalTanks = inventory.filter(i => i.category === InventoryCategory.GAS || !i.category).reduce((acc, item) => acc + item.total, 0);
-    const totalFull = inventory.filter(i => i.category === InventoryCategory.GAS || !i.category).reduce((acc, item) => acc + item.full, 0);
-    const totalEmpty = totalTanks - totalFull;
-    return { totalTanks, totalFull, totalEmpty };
+    const gasItems = inventory.filter(i => i.category === InventoryCategory.GAS || !i.category);
+    const totalTanks = gasItems.reduce((acc, item) => acc + item.total, 0);
+    const totalFull = gasItems.reduce((acc, item) => acc + item.full, 0);
+    const totalOnLoan = gasItems.reduce((acc, item) => acc + (item.on_loan || 0), 0);
+    // Logic Changed: Empty is Total - Full - OnLoan
+    const totalEmpty = totalTanks - totalFull - totalOnLoan;
+    return { totalTanks, totalFull, totalEmpty, totalOnLoan };
   }, [inventory]);
 
   return (
@@ -146,10 +147,11 @@ const Inventory: React.FC = () => {
 
       {activeTab === InventoryCategory.GAS && (
         <Card className="mb-4">
-            <div className="grid grid-cols-3 gap-4 text-center">
-            <div><p className="text-sm text-gray-500">ถังทั้งหมด</p><p className="text-2xl font-bold text-gray-800">{summary.totalTanks}</p></div>
-            <div><p className="text-sm text-green-500">ถังเต็ม</p><p className="text-2xl font-bold text-green-600">{summary.totalFull}</p></div>
-            <div><p className="text-sm text-orange-500">ถังเปล่า</p><p className="text-2xl font-bold text-orange-600">{summary.totalEmpty}</p></div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+                <div><p className="text-sm text-gray-500">ถังทั้งหมด</p><p className="text-xl font-bold text-gray-800">{summary.totalTanks}</p></div>
+                <div><p className="text-sm text-green-500">ถังเต็ม</p><p className="text-xl font-bold text-green-600">{summary.totalFull}</p></div>
+                <div><p className="text-sm text-orange-500">ถังเปล่า</p><p className="text-xl font-bold text-orange-600">{summary.totalEmpty}</p></div>
+                <div><p className="text-sm text-blue-500">ถูกยืม</p><p className="text-xl font-bold text-blue-600">{summary.totalOnLoan}</p></div>
             </div>
         </Card>
       )}
@@ -163,7 +165,7 @@ const Inventory: React.FC = () => {
               {item.category !== InventoryCategory.ACCESSORY && (
                   <>
                     <div><p className="text-xs text-green-500">เต็ม</p><p className="font-bold text-xl text-green-600">{item.full}</p></div>
-                    <div><p className="text-xs text-orange-500">เปล่า</p><p className="font-bold text-xl text-orange-600">{item.total - item.full}</p></div>
+                    <div><p className="text-xs text-orange-500">เปล่า</p><p className="font-bold text-xl text-orange-600">{item.total - item.full - (item.on_loan || 0)}</p></div>
                   </>
               )}
               <div><p className="text-xs text-blue-500">ถูกยืม</p><p className="font-bold text-xl text-blue-600">{item.on_loan}</p></div>
