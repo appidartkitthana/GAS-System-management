@@ -123,6 +123,31 @@ const Dashboard: React.FC = () => {
         {viewMode === 'daily' && (
             <>
                 <Card>
+                     <h2 className="text-lg font-semibold mb-2 text-red-700">สรุปเติมแก๊ส (วันนี้)</h2>
+                     <div className="text-sm space-y-2">
+                         <div className="flex justify-between font-semibold border-b pb-1 text-gray-500">
+                             <span>ขนาด</span>
+                             <div className="flex gap-4">
+                                 <span className="text-lime-600 w-12 text-right">เงินสด</span>
+                                 <span className="text-blue-600 w-12 text-right">เครดิต</span>
+                                 <span className="w-12 text-right">รวม</span>
+                             </div>
+                         </div>
+                         {dailySummary.refillStats.map(r => (
+                             <div key={r.size} className="flex justify-between py-1 border-b border-gray-50 last:border-0">
+                                 <span>{r.size}</span>
+                                 <div className="flex gap-4">
+                                     <span className="text-lime-600 w-12 text-right">{r.cashCount}</span>
+                                     <span className="text-blue-600 w-12 text-right">{r.creditCount}</span>
+                                     <span className="font-bold w-12 text-right">{r.count}</span>
+                                 </div>
+                             </div>
+                         ))}
+                         {dailySummary.refillStats.length === 0 && <p className="text-center text-gray-400 py-2">ไม่มีรายการเติมแก๊ส</p>}
+                     </div>
+                </Card>
+
+                <Card>
                     <h2 className="text-lg font-semibold mb-2 text-gray-700">ช่องทางชำระเงิน (วันนี้)</h2>
                     <div className="flex items-center space-x-4">
                         <div className="flex-shrink-0"><DonutChart data={paymentChartData} /></div>
@@ -152,8 +177,71 @@ const Dashboard: React.FC = () => {
 
         {viewMode === 'monthly' && (
             <>
+                 {/* Sales Summary */}
+                 <Card>
+                     <h2 className="text-lg font-semibold mb-2 text-green-700">สรุปยอดขายแก๊ส (ถัง)</h2>
+                     <div className="text-sm space-y-2">
+                         <div className="flex justify-between font-semibold border-b pb-1 text-gray-500">
+                             <span>ขนาด</span>
+                             <div className="flex gap-2">
+                                 <span className="text-lime-600 w-12 text-right text-[10px]">สด/โอน</span>
+                                 <span className="text-blue-600 w-12 text-right text-[10px]">เครดิต</span>
+                                 <span className="text-gray-400 w-12 text-right text-[10px]">กำกับภาษี</span>
+                                 <span className="w-10 text-right text-[10px]">รวม</span>
+                             </div>
+                         </div>
+                         {monthlySummary.salesStats.map(r => (
+                             <div key={r.size} className="flex justify-between py-1 border-b border-gray-50 last:border-0">
+                                 <span>{r.size}</span>
+                                 <div className="flex gap-2">
+                                     <span className="text-lime-600 w-12 text-right">{r.cashTransferCount}</span>
+                                     <span className="text-blue-600 w-12 text-right">{r.creditCount}</span>
+                                     <span className="text-gray-500 w-12 text-right border-l pl-1 bg-gray-50 rounded-r">{r.taxInvoiceCount}</span>
+                                     <span className="font-bold w-10 text-right">{r.count}</span>
+                                 </div>
+                             </div>
+                         ))}
+                         {monthlySummary.salesStats.length === 0 && <p className="text-center text-gray-400 py-2">ไม่มีรายการขาย</p>}
+                     </div>
+                </Card>
+
                 <Card>
-                    <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปรายจ่าย</h2>
+                     <h2 className="text-lg font-semibold mb-2 text-red-700">สรุปรายจ่าย (เติมแก๊ส)</h2>
+                     <div className="text-sm space-y-2">
+                         <div className="flex justify-between font-semibold border-b pb-1 text-gray-500">
+                             <span>ขนาด</span>
+                             <div className="flex gap-4">
+                                 <span className="text-lime-600 w-12 text-right">เงินสด</span>
+                                 <span className="text-blue-600 w-12 text-right">เครดิต</span>
+                                 <span className="w-12 text-right">รวม</span>
+                             </div>
+                         </div>
+                         {monthlySummary.refillStats.map(r => (
+                             <div key={r.size} className="flex justify-between py-1 border-b border-gray-50 last:border-0">
+                                 <span>{r.size}</span>
+                                 <div className="flex gap-4">
+                                     <span className="text-lime-600 w-12 text-right">{r.cashCount}</span>
+                                     <span className="text-blue-600 w-12 text-right">{r.creditCount}</span>
+                                     <span className="font-bold w-12 text-right">{r.count}</span>
+                                 </div>
+                             </div>
+                         ))}
+                         {monthlySummary.refillStats.length === 0 && <p className="text-center text-gray-400 py-2">ไม่มีรายการเติมแก๊ส</p>}
+                     </div>
+                     <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
+                         <div className="text-center p-2 bg-slate-100 rounded">
+                             <p className="text-xs text-gray-500">น้ำหนักคืนรวม</p>
+                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnKg.toFixed(2)} กก.</p>
+                         </div>
+                         <div className="text-center p-2 bg-slate-100 rounded">
+                             <p className="text-xs text-gray-500">มูลค่าคืนเนื้อ</p>
+                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnValue.toLocaleString()} ฿</p>
+                         </div>
+                     </div>
+                </Card>
+
+                <Card>
+                    <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปรายจ่ายทั้งหมด</h2>
                     <table className="w-full text-sm text-left">
                         <thead className="text-gray-500 bg-gray-50 border-b">
                             <tr>
@@ -205,39 +293,6 @@ const Dashboard: React.FC = () => {
                             </tbody>
                         </table>
                     </div>
-                </Card>
-                <Card>
-                     <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปเติมแก๊ส (ถัง)</h2>
-                     <div className="text-sm space-y-2">
-                         <div className="flex justify-between font-semibold border-b pb-1 text-gray-500">
-                             <span>ขนาด</span>
-                             <div className="flex gap-4">
-                                 <span className="text-lime-600 w-12 text-right">เงินสด</span>
-                                 <span className="text-blue-600 w-12 text-right">เครดิต</span>
-                                 <span className="w-12 text-right">รวม</span>
-                             </div>
-                         </div>
-                         {monthlySummary.refillStats.map(r => (
-                             <div key={r.size} className="flex justify-between">
-                                 <span>{r.size}</span>
-                                 <div className="flex gap-4">
-                                     <span className="text-lime-600 w-12 text-right">{r.cashCount}</span>
-                                     <span className="text-blue-600 w-12 text-right">{r.creditCount}</span>
-                                     <span className="font-bold w-12 text-right">{r.count}</span>
-                                 </div>
-                             </div>
-                         ))}
-                     </div>
-                     <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
-                         <div className="text-center p-2 bg-slate-100 rounded">
-                             <p className="text-xs text-gray-500">น้ำหนักคืนรวม</p>
-                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnKg.toFixed(2)} กก.</p>
-                         </div>
-                         <div className="text-center p-2 bg-slate-100 rounded">
-                             <p className="text-xs text-gray-500">มูลค่าคืนเนื้อ</p>
-                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnValue.toLocaleString()} ฿</p>
-                         </div>
-                     </div>
                 </Card>
             </>
         )}

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 
@@ -10,6 +10,14 @@ interface RefillSummary {
   cashCount: number;
   creditCount: number;
   cost: number;
+}
+
+interface SalesSummary {
+  size: string;
+  count: number;
+  cashTransferCount: number;
+  creditCount: number;
+  taxInvoiceCount: number;
 }
 
 interface ExpenseBreakdown {
@@ -40,6 +48,7 @@ interface AppContextType {
     transferIncome: number;
     creditIncome: number;
     salesByCustomer: { customerId: string; customerName: string; totalAmount: number }[];
+    refillStats: RefillSummary[]; // New field for Daily Refills
   };
   monthlySummary: {
     income: number;
@@ -49,6 +58,7 @@ interface AppContextType {
     gasReturnKg: number;
     gasReturnValue: number;
     refillStats: RefillSummary[];
+    salesStats: SalesSummary[];
     expenseBreakdown: ExpenseBreakdown[];
   };
 
@@ -385,7 +395,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const salesByCustomer = (Array.from(salesByCustomerMap.values()) as { customerId: string; customerName: string; totalAmount: number }[]).sort((a, b) => b.totalAmount - a.totalAmount);
 
-    return { income, expense, profit: netProfit, cashIncome, transferIncome, creditIncome, salesByCustomer };
+    // New: Refill Summary for Daily
+    const refillMap = new Map<string, RefillSummary>();
+      dateExpenses.forEach(e => {
+          const isCredit = e.payment_method === PaymentMethod.CREDIT;
+          if (e.refill_details) {
+              e.refill_details.forEach(item => {
+                  const key = `${item.brand} ${item.size}`;
+                  if (!refillMap.has(key)) refillMap.set(key, { size: key, count: 0, cashCount: 0, creditCount: 0, cost: 0 });
+                  const r = refillMap.get(key)!;
+                  r.count += item.quantity;
+                  if (isCredit) r.creditCount += item.quantity;
+                  else r.cashCount += item.quantity;
+              });
+          }
+          // Legacy support
+          if (e.refill_tank_brand && e.refill_tank_size) {
+               const key = `${e.refill_tank_brand} ${e.refill_tank_size}`;
+               if (!refillMap.has(key)) refillMap.set(key, { size: key, count: 0, cashCount: 0, creditCount: 0, cost: 0 });
+               const r = refillMap.get(key)!;
+               const qty = e.refill_quantity || 0;
+               r.count += qty;
+               if (isCredit) r.creditCount += qty;
+               else r.cashCount += qty;
+          }
+      });
+      const refillStats = Array.from(refillMap.values());
+
+    return { income, expense, profit: netProfit, cashIncome, transferIncome, creditIncome, salesByCustomer, refillStats };
   }, [sales, expenses, reportDate, customers, inventory]);
 
   const monthlySummary = useMemo(() => {
@@ -453,7 +490,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const gasReturnKg = monthExpenses.reduce((acc, e) => acc + (e.gas_return_kg || 0), 0);
       const gasReturnValue = monthExpenses.reduce((acc, e) => acc + (e.gas_return_amount || 0), 0);
 
-      // Refill Stats with Cash/Credit Split
+      // Refill Stats with Cash/Credit Split (Expenses)
       const refillMap = new Map<string, RefillSummary>();
       monthExpenses.forEach(e => {
           const isCredit = e.payment_method === PaymentMethod.CREDIT;
@@ -467,7 +504,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   else r.cashCount += item.quantity;
               });
           }
-          // Legacy support (Assume old records are Cash for simplicity if not defined, but check payment method)
+          // Legacy support
           if (e.refill_tank_brand && e.refill_tank_size) {
                const key = `${e.refill_tank_brand} ${e.refill_tank_size}`;
                if (!refillMap.has(key)) refillMap.set(key, { size: key, count: 0, cashCount: 0, creditCount: 0, cost: 0 });
@@ -479,6 +516,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
       });
       const refillStats = Array.from(refillMap.values());
+
+      // Sales Stats by Size and Payment Method
+      const salesStatsMap = new Map<string, SalesSummary>();
+      monthSales.forEach(s => {
+          const isCredit = s.payment_method === PaymentMethod.CREDIT;
+          const isTaxInvoice = s.invoice_type === InvoiceType.TAX_INVOICE;
+          
+          if (s.items && Array.isArray(s.items) && s.items.length > 0) {
+              s.items.forEach(item => {
+                  const key = `${item.brand} ${item.size}`;
+                  if (!salesStatsMap.has(key)) salesStatsMap.set(key, { size: key, count: 0, cashTransferCount: 0, creditCount: 0, taxInvoiceCount: 0 });
+                  const stat = salesStatsMap.get(key)!;
+                  stat.count += item.quantity;
+                  if (isCredit) stat.creditCount += item.quantity;
+                  else stat.cashTransferCount += item.quantity;
+                  
+                  if (isTaxInvoice) stat.taxInvoiceCount += item.quantity;
+              });
+          } else {
+               // Legacy
+               const key = `${s.tank_brand} ${s.tank_size}`;
+               if (!salesStatsMap.has(key)) salesStatsMap.set(key, { size: key, count: 0, cashTransferCount: 0, creditCount: 0, taxInvoiceCount: 0 });
+               const stat = salesStatsMap.get(key)!;
+               stat.count += s.quantity;
+               if (isCredit) stat.creditCount += s.quantity;
+               else stat.cashTransferCount += s.quantity;
+
+               if (isTaxInvoice) stat.taxInvoiceCount += s.quantity;
+          }
+      });
+      const salesStats = Array.from(salesStatsMap.values());
 
       // Expense Breakdown with Cash/Credit
       const expenseBreakdownMap = new Map<string, ExpenseBreakdown>();
@@ -502,7 +570,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const expenseBreakdown = Array.from(expenseBreakdownMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 
-      return { income, expense, profit, customerStats, gasReturnKg, gasReturnValue, refillStats, expenseBreakdown };
+      return { income, expense, profit, customerStats, gasReturnKg, gasReturnValue, refillStats, salesStats, expenseBreakdown };
   }, [sales, expenses, reportDate, customers, inventory]);
 
   const value = {
