@@ -39,8 +39,8 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
           }
           @media print {
             html, body {
-               height: 100%;
-               overflow: hidden;
+               height: auto;
+               overflow: visible;
             }
             body {
               background: white;
@@ -52,22 +52,23 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
               visibility: visible;
             }
             #invoice-a4 {
-              position: absolute;
+              position: relative;
               left: 0;
               top: 0;
               width: 210mm;
-              height: 297mm;
+              min-height: 297mm; /* Changed from height to min-height */
+              height: auto;
               margin: 0;
               padding: 10mm 15mm;
               background: white;
               box-shadow: none;
               border-radius: 0;
-              transform: scale(1);
-              transform-origin: top left;
             }
             .no-print {
               display: none !important;
             }
+            /* Ensure table rows don't break awkwardly */
+            tr { page-break-inside: avoid; }
           }
         `}</style>
       
@@ -81,13 +82,13 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
           </ul>
       </div>
 
-      <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700">
+      <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700 flex flex-col">
         
         {/* Header */}
         <div className="flex justify-between items-start mb-6">
             <div className="flex items-center">
                 {seller.logo ? (
-                    <img src={seller.logo} alt="Logo" className="h-20 w-auto mr-4 object-contain" />
+                    <img src={seller.logo} alt="Logo" className="h-24 w-auto mr-4 object-contain" />
                 ) : (
                     <div className="w-16 h-16 rounded-full border-2 border-sky-600 flex items-center justify-center text-sky-700 font-bold text-xs mr-4">
                         LOGO
@@ -162,56 +163,45 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         </div>
 
         {/* Items Table */}
-        <table className="w-full mb-8 border-collapse">
-            <thead>
-                <tr className="bg-green-100 text-gray-700">
-                    <th className="py-2 px-2 border border-green-200 w-10 text-center">#</th>
-                    <th className="py-2 px-2 border border-green-200 text-left">คำอธิบาย</th>
-                    <th className="py-2 px-2 border border-green-200 w-20 text-right">จำนวน</th>
-                    <th className="py-2 px-2 border border-green-200 w-24 text-right">ราคา</th>
-                    <th className="py-2 px-2 border border-green-200 w-20 text-right">ส่วนลด</th>
-                    <th className="py-2 px-2 border border-green-200 w-16 text-center">VAT</th>
-                    <th className="py-2 px-2 border border-green-200 w-32 text-right">จำนวนเงิน</th>
-                </tr>
-            </thead>
-            <tbody>
-                {items.map((item, idx) => {
-                    return (
-                        <tr key={idx}>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">{idx + 1}.</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 align-top">
-                                <p className="font-bold text-gray-800">LPG (ถัง {item.size})</p>
-                                <p className="text-gray-500 text-xs">แบรนด์: {item.brand}</p>
-                            </td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.quantity.toFixed(2)}</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">0.00</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">7%</td>
-                            <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.total_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                    );
-                })}
-                
-                {/* Spacer Rows to fill A4 height */}
-                {[...Array(Math.max(0, 8 - items.length))].map((_, i) => (
-                    <tr key={`spacer-${i}`}>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
-                        <td className="py-2 px-2 border-l border-r border-gray-100">&nbsp;</td>
+        <div className="flex-grow">
+            <table className="w-full mb-8 border-collapse">
+                <thead>
+                    <tr className="bg-green-100 text-gray-700">
+                        <th className="py-2 px-2 border border-green-200 w-10 text-center">#</th>
+                        <th className="py-2 px-2 border border-green-200 text-left">คำอธิบาย</th>
+                        <th className="py-2 px-2 border border-green-200 w-20 text-right">จำนวน</th>
+                        <th className="py-2 px-2 border border-green-200 w-24 text-right">ราคา</th>
+                        <th className="py-2 px-2 border border-green-200 w-20 text-right">ส่วนลด</th>
+                        <th className="py-2 px-2 border border-green-200 w-16 text-center">VAT</th>
+                        <th className="py-2 px-2 border border-green-200 w-32 text-right">จำนวนเงิน</th>
                     </tr>
-                ))}
-                 <tr className="border-t border-gray-200">
-                     <td colSpan={7}></td>
-                 </tr>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {items.map((item, idx) => {
+                        return (
+                            <tr key={idx}>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">{idx + 1}.</td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 align-top">
+                                    <p className="font-bold text-gray-800">LPG (ถัง {item.size})</p>
+                                    <p className="text-gray-500 text-xs">แบรนด์: {item.brand}</p>
+                                </td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.quantity.toFixed(2)}</td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">0.00</td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">7%</td>
+                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.total_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                            </tr>
+                        );
+                    })}
+                    <tr className="border-t border-gray-200">
+                        <td colSpan={7}></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
 
         {/* Summary Section */}
-        <div className="flex items-start mb-8">
+        <div className="flex items-start mb-8 break-inside-avoid">
             {/* Left Side: Summary Text */}
             <div className="flex-grow pr-8 space-y-1">
                 {sale.gas_return_kg && (
@@ -250,7 +240,7 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         </div>
 
         {/* Payment Info */}
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 flex text-sm">
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 flex text-sm break-inside-avoid">
             <div className="w-24 font-bold">ชำระเงิน</div>
             <div className="flex-grow grid grid-cols-2 gap-4">
                 <div>
@@ -264,7 +254,7 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         </div>
 
         {/* Signatures */}
-        <div className="grid grid-cols-4 gap-4 text-center text-xs mt-auto">
+        <div className="grid grid-cols-4 gap-4 text-center text-xs mt-auto break-inside-avoid">
              <div className="col-span-1">
                  <div className="h-16 border-b border-dotted border-gray-400 mb-2"></div>
                  <p>ผู้ออกเอกสาร</p>
