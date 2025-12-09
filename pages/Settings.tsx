@@ -5,8 +5,9 @@ import Card from '../components/Card';
 import { supabaseClient } from '../lib/supabaseClient';
 import CheckCircleIcon from '../components/icons/CheckCircleIcon';
 import XCircleIcon from '../components/icons/XCircleIcon';
-import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory } from '../types';
+import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory, CompanyInfo } from '../types';
 import { formatSupabaseError } from '../lib/utils';
+import { useAppContext } from '../context/AppContext';
 
 type Status = 'idle' | 'testing' | 'success' | 'error';
 type ErrorType = 'schema' | 'rls' | 'connection' | 'unknown';
@@ -19,12 +20,39 @@ interface TestResult {
 }
 
 const Settings: React.FC = () => {
+  const { companyInfo, updateCompanyInfo } = useAppContext();
   const [testResult, setTestResult] = useState<TestResult>({
     status: 'idle',
     messages: [],
     errorType: null,
     schemaFixes: []
   });
+  
+  // Company Info Form State
+  const [formInfo, setFormInfo] = useState<CompanyInfo>(companyInfo);
+  const [isSaved, setIsSaved] = useState(false);
+
+  const handleInfoChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const { name, value } = e.target;
+      setFormInfo(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              setFormInfo(prev => ({ ...prev, logo: reader.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  const saveCompanyInfo = () => {
+      updateCompanyInfo(formInfo);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+  };
 
   const addMessage = (msg: string) => {
     setTestResult(prev => ({ ...prev, messages: [...prev.messages, msg] }));
@@ -54,6 +82,7 @@ const Settings: React.FC = () => {
           { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
           { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN cost_price numeric;' },
           { table: 'inventory', column: 'notes', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN notes text;' },
+          { table: 'inventory', column: 'low_stock_threshold', type: 'integer', fix: 'ALTER TABLE public.inventory ADD COLUMN low_stock_threshold integer;' },
           { table: 'expenses', column: 'refill_details', type: 'jsonb', fix: 'ALTER TABLE public.expenses ADD COLUMN refill_details jsonb;' },
           { table: 'expenses', column: 'payee', type: 'text', fix: 'ALTER TABLE public.expenses ADD COLUMN payee text;' },
           { table: 'expenses', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_kg numeric;' },
@@ -67,7 +96,6 @@ const Settings: React.FC = () => {
           addMessage(`- ตรวจสอบตาราง '${check.table}' คอลัมน์ '${check.column}'`);
           const { error } = await supabaseClient.from(check.table).select(check.column).limit(1);
           if (error) {
-             // If column doesn't exist, Supabase returns error 42703 or similar
              schemaErrors.push(`❌ ตาราง '${check.table}' ขาดคอลัมน์: '${check.column}'`);
              schemaFixes.push(check);
           }
@@ -77,7 +105,7 @@ const Settings: React.FC = () => {
       addMessage('- ตรวจสอบประเภทคอลัมน์ expenses.type...');
       const { error: customTypeError } = await supabaseClient.from('expenses').insert({
           date: new Date().toISOString(),
-          type: 'TEST_CUSTOM_TYPE_XYZ', // Try inserting a non-enum value
+          type: 'TEST_CUSTOM_TYPE_XYZ', 
           description: 'Type Check',
           amount: 0,
           payment_method: PaymentMethod.CASH,
@@ -90,15 +118,10 @@ const Settings: React.FC = () => {
                   table: 'expenses', 
                   fix: `ALTER TABLE public.expenses ALTER COLUMN type TYPE text; DROP TYPE IF EXISTS expense_type;` 
               });
-          } else {
-              // Other error, log it but maybe not schema related directly
-              console.warn("Expense Type Check Warning:", customTypeError);
           }
       } else {
-          // Success, cleanup immediately
           await supabaseClient.from('expenses').delete().eq('type', 'TEST_CUSTOM_TYPE_XYZ');
       }
-
 
       // Special Check for Nullable constraints in Inventory (for Accessories)
       addMessage('- ทดสอบการบันทึกอุปกรณ์ (Accessory)...');
@@ -108,12 +131,8 @@ const Settings: React.FC = () => {
           total: 1,
           full: 0,
           on_loan: 0,
-          tank_brand: null, // Should be allowed
-          tank_size: null,   // Should be allowed
-          // Note: We intentionally DO NOT include 'notes' here. 
-          // If the 'notes' column is missing, the check above catches it. 
-          // Including it here would cause this INSERT to fail with "column not found" 
-          // before we can report the missing column error from the loop above.
+          tank_brand: null, 
+          tank_size: null,   
       }).select().single();
 
       if (accError) {
@@ -122,13 +141,11 @@ const Settings: React.FC = () => {
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_brand DROP NOT NULL;' });
                schemaFixes.push({ table: 'inventory', fix: 'ALTER TABLE public.inventory ALTER COLUMN tank_size DROP NOT NULL;' });
            } else {
-               // Ignore unique constraint error if it clashes with existing test data
                if (accError.code !== '23505') {
                    throw { stage: 'INSERT Accessory', table: 'inventory', originalError: accError };
                }
            }
       } else {
-           // Clean up immediately by name
            await supabaseClient.from('inventory').delete().eq('name', 'Test Accessory');
       }
 
@@ -140,8 +157,6 @@ const Settings: React.FC = () => {
       // --- Stage 2: CRUD Permissions Test ---
       addMessage('2. กำลังทดสอบสิทธิ์การใช้งาน (Permissions)...');
       
-      // Test Customers
-      addMessage('- ทดสอบตาราง `customers` (INSERT, DELETE)');
       const { data: cData, error: cInsertErr } = await supabaseClient.from('customers').insert({ 
           name: testId, 
           branch: 'test', 
@@ -155,8 +170,6 @@ const Settings: React.FC = () => {
       if (cInsertErr) throw { stage: 'INSERT', table: 'customers', originalError: cInsertErr };
       customerId = cData.id;
 
-      // Test Inventory (Gas)
-      addMessage('- ทดสอบตาราง `inventory` (INSERT, DELETE)');
       const { data: iData, error: iInsertErr } = await supabaseClient.from('inventory').insert({ 
           total: 1, 
           full: 1, 
@@ -165,13 +178,12 @@ const Settings: React.FC = () => {
           tank_size: Size.OTHER, 
           category: InventoryCategory.GAS,
           cost_price: 0,
-          notes: 'Test' 
+          notes: 'Test',
+          low_stock_threshold: 0
       }).select('id').single();
       if (iInsertErr) throw { stage: 'INSERT', table: 'inventory', originalError: iInsertErr };
       inventoryId = iData.id;
       
-      // Test Expenses (Strict Mode: Include all new fields)
-      addMessage('- ทดสอบตาราง `expenses` (INSERT, DELETE)');
       const { data: eData, error: eInsertErr } = await supabaseClient.from('expenses').insert({ 
           date: new Date().toISOString(), 
           type: ExpenseType.OTHER, 
@@ -186,8 +198,6 @@ const Settings: React.FC = () => {
       if (eInsertErr) throw { stage: 'INSERT', table: 'expenses', originalError: eInsertErr };
       expenseId = eData.id;
 
-      // Test Sales (Strict Mode: Include all new fields)
-      addMessage('- ทดสอบตาราง `sales` (INSERT, DELETE)');
       const { data: sData, error: sInsertErr } = await supabaseClient.from('sales').insert({ 
           customer_id: customerId, 
           date: new Date().toISOString(), 
@@ -206,9 +216,7 @@ const Settings: React.FC = () => {
       if (sInsertErr) throw { stage: 'INSERT', table: 'sales', originalError: sInsertErr };
       saleId = sData.id;
 
-      // Cleanup
       addMessage('- กำลังลบข้อมูลทดสอบ...');
-      
       setTestResult(prev => ({ ...prev, status: 'success', messages: ['✅ เชื่อมต่อและทดสอบฐานข้อมูลสำเร็จ! โครงสร้างและสิทธิ์การใช้งานถูกต้องทั้งหมด'] }));
 
     } catch (error: any) {
@@ -225,7 +233,6 @@ const Settings: React.FC = () => {
         const stage = error.stage || 'Unknown';
         const table = error.table || 'N/A';
         const originalError = error.originalError || error;
-        
         const errorMsg = formatSupabaseError(originalError);
 
         let errorMessages: string[] = [`การทดสอบล้มเหลวที่ขั้นตอน '${stage}' ของตาราง '${table}'`];
@@ -242,7 +249,6 @@ const Settings: React.FC = () => {
         }
 
         setTestResult(prev => ({ ...prev, status: 'error', messages: errorMessages, errorType }));
-        console.error('Database connection test failed:', originalError);
     } finally {
         const clean = async () => {
              if (saleId) await supabaseClient.from('sales').delete().eq('id', saleId);
@@ -280,7 +286,6 @@ const Settings: React.FC = () => {
            {errorType === 'rls' && (
             <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
               <p className="font-bold mb-2">วิธีแก้ไข (เปิดสิทธิ์การใช้งาน):</p>
-              <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase SQL Editor:</p>
               <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
                 <code>
 {`CREATE POLICY "Enable all access for all users" ON "public"."customers" FOR ALL USING (true);
@@ -301,6 +306,39 @@ CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL U
   return (
     <div>
       <Header title="ตั้งค่า" />
+      
+      <Card className="mb-4">
+          <h2 className="text-lg font-semibold mb-4 text-gray-700">ข้อมูลร้านค้า</h2>
+          <div className="space-y-4">
+              <div>
+                  <label className="block text-sm font-medium text-gray-700">ชื่อร้าน/บริษัท</label>
+                  <input name="name" value={formInfo.name} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+              </div>
+              <div>
+                  <label className="block text-sm font-medium text-gray-700">ที่อยู่</label>
+                  <textarea name="address" value={formInfo.address} onChange={handleInfoChange} rows={2} className="w-full mt-1 p-2 border rounded" />
+              </div>
+               <div>
+                  <label className="block text-sm font-medium text-gray-700">เบอร์โทรศัพท์</label>
+                  <input name="phone" value={formInfo.phone} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+              </div>
+              <div>
+                  <label className="block text-sm font-medium text-gray-700">เลขประจำตัวผู้เสียภาษี</label>
+                  <input name="taxId" value={formInfo.taxId} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+              </div>
+               <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">โลโก้ร้าน (สำหรับใบเสร็จ)</label>
+                  <div className="flex items-center space-x-4">
+                      {formInfo.logo && <img src={formInfo.logo} alt="Logo Preview" className="h-16 w-16 object-contain border rounded" />}
+                      <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" />
+                  </div>
+              </div>
+              <button onClick={saveCompanyInfo} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full sm:w-auto">
+                  {isSaved ? 'บันทึกเรียบร้อย' : 'บันทึกข้อมูลร้านค้า'}
+              </button>
+          </div>
+      </Card>
+
       <Card>
         <h2 className="text-lg font-semibold mb-2 text-gray-700">วินิจฉัยระบบฐานข้อมูล</h2>
         <button onClick={handleTestConnection} disabled={testResult.status === 'testing'} className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 transition-colors">

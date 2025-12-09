@@ -4,7 +4,7 @@ import Header from '../components/Header';
 import Card from '../components/Card';
 import { useAppContext } from '../context/AppContext';
 import { formatDateForInput } from '../lib/utils';
-import { PaymentMethod } from '../types';
+import { PaymentMethod, InventoryCategory } from '../types';
 
 const SummaryCard: React.FC<{ title: string; amount: number; colorClass: string }> = ({ title, amount, colorClass }) => (
     <Card className="flex-1 text-center">
@@ -42,6 +42,45 @@ const FinancialBarChart: React.FC<{ income: number; expense: number }> = ({ inco
     );
 };
 
+const TopCustomersBarChart: React.FC<{ data: { name: string; totalSales: number; totalProfit: number }[] }> = ({ data }) => {
+    if (data.length === 0) return <div className="text-center text-gray-400 py-8">ไม่มีข้อมูลลูกค้า</div>;
+
+    const maxVal = Math.max(...data.map(d => d.totalSales));
+    
+    return (
+        <div className="space-y-4 pt-4">
+            {data.map((c, i) => (
+                <div key={i}>
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                        <span className="truncate w-1/2">{c.name}</span>
+                        <div className="flex gap-2">
+                             <span>ยอด: {c.totalSales.toLocaleString()}</span>
+                             <span className="text-sky-600">กำไร: {c.totalProfit.toLocaleString()}</span>
+                        </div>
+                    </div>
+                    <div className="h-4 bg-gray-100 rounded-full overflow-hidden flex relative">
+                         {/* Sales Bar */}
+                        <div 
+                            className="h-full bg-orange-400 absolute top-0 left-0 rounded-full" 
+                            style={{ width: `${(c.totalSales / maxVal) * 100}%` }}
+                        ></div>
+                         {/* Profit Indicator (Overlay) */}
+                        <div 
+                            className="h-full bg-sky-500 absolute top-0 left-0 rounded-full opacity-60" 
+                            style={{ width: `${(c.totalProfit / maxVal) * 100}%` }}
+                        ></div>
+                    </div>
+                </div>
+            ))}
+            <div className="flex justify-center gap-4 text-xs mt-2">
+                <div className="flex items-center"><span className="w-3 h-3 bg-orange-400 rounded mr-1"></span>ยอดขาย</div>
+                <div className="flex items-center"><span className="w-3 h-3 bg-sky-500 opacity-60 rounded mr-1"></span>กำไร</div>
+            </div>
+        </div>
+    );
+};
+
+
 const DonutChart: React.FC<{ data: { name: string, value: number, color: string }[] }> = ({ data }) => {
     const total = data.reduce((acc, item) => acc + item.value, 0);
     let accumulatedPercentage = 0;
@@ -76,7 +115,7 @@ const DonutChart: React.FC<{ data: { name: string, value: number, color: string 
 };
 
 const Dashboard: React.FC = () => {
-    const { dailySummary, monthlySummary, reportDate, setReportDate } = useAppContext();
+    const { dailySummary, monthlySummary, reportDate, setReportDate, lowStockItems } = useAppContext();
     const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,6 +142,23 @@ const Dashboard: React.FC = () => {
             className="p-1.5 border border-gray-300 rounded-lg bg-white/80 shadow-inner text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none"
         />
       </Header>
+
+      {/* Low Stock Alerts */}
+      {lowStockItems.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 animate-pulse">
+              <div className="flex items-center gap-2 mb-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <h3 className="font-bold text-red-700">สินค้าใกล้หมด!</h3>
+              </div>
+              <ul className="list-disc list-inside text-sm text-red-600">
+                  {lowStockItems.map(item => (
+                      <li key={item.id}>{item.category === InventoryCategory.ACCESSORY ? item.name : `${item.tank_brand} ${item.tank_size}`} (เหลือ {item.full})</li>
+                  ))}
+              </ul>
+          </div>
+      )}
 
       <div className="flex bg-white/80 p-1 rounded-lg shadow-inner backdrop-blur-sm mb-4">
         <button onClick={() => setViewMode('daily')} className={`w-full py-2 rounded-md transition-colors ${viewMode === 'daily' ? 'bg-orange-400 text-white shadow' : 'text-gray-600'}`}>รายวัน</button>
@@ -177,6 +233,12 @@ const Dashboard: React.FC = () => {
 
         {viewMode === 'monthly' && (
             <>
+                 {/* Top Customers Chart */}
+                 <Card>
+                    <h2 className="text-lg font-semibold mb-2 text-sky-700">ยอดขายลูกค้าสูงสุด 5 อันดับ</h2>
+                    <TopCustomersBarChart data={monthlySummary.topCustomers} />
+                 </Card>
+
                  {/* Sales Summary */}
                  <Card>
                      <h2 className="text-lg font-semibold mb-2 text-green-700">สรุปยอดขายแก๊ส (ถัง)</h2>
@@ -246,6 +308,7 @@ const Dashboard: React.FC = () => {
                         <thead className="text-gray-500 bg-gray-50 border-b">
                             <tr>
                                 <th className="py-2 px-1">ประเภท</th>
+                                <th className="py-2 px-1 text-right">ปริมาณแก๊ส</th>
                                 <th className="py-2 px-1 text-right">เงินสด</th>
                                 <th className="py-2 px-1 text-right">เครดิต</th>
                                 <th className="py-2 px-1 text-right">รวม</th>
@@ -255,6 +318,7 @@ const Dashboard: React.FC = () => {
                             {monthlySummary.expenseBreakdown.map((item, idx) => (
                                 <tr key={idx} className="border-b last:border-0">
                                     <td className="py-2 px-1">{item.type}</td>
+                                    <td className="py-2 px-1 text-right text-gray-500">{item.totalGasQty > 0 ? item.totalGasQty : '-'}</td>
                                     <td className="py-2 px-1 text-right text-lime-600">{item.cashAmount.toLocaleString('th-TH', {maximumFractionDigits:0})}</td>
                                     <td className="py-2 px-1 text-right text-blue-600">{item.creditAmount.toLocaleString('th-TH', {maximumFractionDigits:0})}</td>
                                     <td className="py-2 px-1 text-right font-bold text-red-600">
@@ -264,35 +328,6 @@ const Dashboard: React.FC = () => {
                             ))}
                         </tbody>
                     </table>
-                </Card>
-
-                <Card>
-                    <h2 className="text-lg font-semibold mb-2 text-gray-700">สรุปลูกค้า (เดือนนี้)</h2>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-gray-500 bg-gray-50 border-b">
-                                <tr>
-                                    <th className="py-2 px-2">ชื่อ</th>
-                                    <th className="py-2 px-2 text-right">ถัง</th>
-                                    <th className="py-2 px-2 text-right">ยอดซื้อ</th>
-                                    <th className="py-2 px-2 text-right text-sky-600">กำไร</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {monthlySummary.customerStats.length > 0 ? monthlySummary.customerStats.map(c => (
-                                    <tr key={c.id} className="border-b last:border-0">
-                                        <td className="py-2 px-2">
-                                            <div>{c.name}</div>
-                                            <div className="text-xs text-gray-400">{c.branch}</div>
-                                        </td>
-                                        <td className="py-2 px-2 text-right">{c.tanks}</td>
-                                        <td className="py-2 px-2 text-right">{c.total.toLocaleString('th-TH')}</td>
-                                        <td className="py-2 px-2 text-right font-bold text-sky-600">{c.profit.toLocaleString('th-TH')}</td>
-                                    </tr>
-                                )) : <tr><td colSpan={4} className="text-center py-4 text-gray-400">ไม่มีข้อมูล</td></tr>}
-                            </tbody>
-                        </table>
-                    </div>
                 </Card>
             </>
         )}

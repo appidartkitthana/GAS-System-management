@@ -1,8 +1,8 @@
 
 import React from 'react';
 import { Sale, Customer, InvoiceType } from '../types';
-import { SELLER_INFO } from '../constants';
 import { thaiBahtText } from '../lib/utils';
+import { useAppContext } from '../context/AppContext';
 
 interface InvoiceA4Props {
   sale: Sale;
@@ -10,7 +10,7 @@ interface InvoiceA4Props {
 }
 
 const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
-  const seller = SELLER_INFO;
+  const { companyInfo: seller } = useAppContext();
   const isTaxInvoice = sale.invoice_type === InvoiceType.TAX_INVOICE;
   
   // Calculate Totals
@@ -58,7 +58,7 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
               width: 210mm;
               height: 297mm;
               margin: 0;
-              padding: 10mm 15mm; /* Adjusted margins */
+              padding: 10mm 15mm;
               background: white;
               box-shadow: none;
               border-radius: 0;
@@ -76,7 +76,7 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
           <p className="font-bold">คำแนะนำการพิมพ์:</p>
           <ul className="list-disc ml-5 text-sm">
               <li>ตั้งค่าขนาดกระดาษเป็น <strong>A4</strong></li>
-              <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default</strong></li>
+              <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default (0)</strong></li>
               <li>Scale: <strong>100%</strong> หรือ <strong>Fit to Paper</strong></li>
           </ul>
       </div>
@@ -86,9 +86,13 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         {/* Header */}
         <div className="flex justify-between items-start mb-6">
             <div className="flex items-center">
-                <div className="w-16 h-16 rounded-full border-2 border-sky-600 flex items-center justify-center text-sky-700 font-bold text-xs mr-4">
-                    LOGO
-                </div>
+                {seller.logo ? (
+                    <img src={seller.logo} alt="Logo" className="h-20 w-auto mr-4 object-contain" />
+                ) : (
+                    <div className="w-16 h-16 rounded-full border-2 border-sky-600 flex items-center justify-center text-sky-700 font-bold text-xs mr-4">
+                        LOGO
+                    </div>
+                )}
             </div>
             <div className="text-right">
                 <p className="text-xs text-gray-500">เอกสารออกเป็นชุด</p>
@@ -104,16 +108,20 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
             {/* Seller */}
             <div className="col-span-7 space-y-1">
                 <div className="flex">
-                    <span className="w-20 font-bold text-gray-800">ผู้ขาย :</span>
+                    <span className="w-24 font-bold text-gray-800">ผู้ขาย :</span>
                     <span className="font-bold text-gray-800">{seller.name}</span>
                 </div>
                 <div className="flex">
-                    <span className="w-20 flex-shrink-0">ที่อยู่ :</span>
+                    <span className="w-24 flex-shrink-0">ที่อยู่ :</span>
                     <span>{seller.address}</span>
                 </div>
                 <div className="flex">
-                    <span className="w-20">เลขที่ภาษี :</span>
-                    <span>{seller.taxId} (สำนักงานใหญ่)</span>
+                    <span className="w-24">เลขที่ภาษี :</span>
+                    <span>{seller.taxId}</span>
+                </div>
+                 <div className="flex">
+                    <span className="w-24">โทรศัพท์ :</span>
+                    <span>{seller.phone}</span>
                 </div>
             </div>
 
@@ -134,15 +142,15 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
         <div className="grid grid-cols-12 gap-4 mb-8">
              <div className="col-span-7 space-y-1">
                 <div className="flex">
-                    <span className="w-20 font-bold text-gray-800">ลูกค้า :</span>
+                    <span className="w-24 font-bold text-gray-800">ลูกค้า :</span>
                     <span className="font-bold text-gray-800">{customer.name} {customer.branch}</span>
                 </div>
                 <div className="flex">
-                    <span className="w-20 flex-shrink-0">ที่อยู่ :</span>
+                    <span className="w-24 flex-shrink-0">ที่อยู่ :</span>
                     <span>{customer.address || '-'}</span>
                 </div>
                 <div className="flex">
-                    <span className="w-20">เลขที่ภาษี :</span>
+                    <span className="w-24">เลขที่ภาษี :</span>
                     <span>{customer.tax_id || '-'}</span>
                 </div>
             </div>

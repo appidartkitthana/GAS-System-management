@@ -1,8 +1,9 @@
 
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
+import { SELLER_INFO } from '../constants';
 
 interface RefillSummary {
   size: string;
@@ -29,6 +30,14 @@ interface ExpenseBreakdown {
     totalGasQty: number;
 }
 
+interface CustomerSalesStat {
+    id: string;
+    name: string;
+    branch: string;
+    totalSales: number;
+    totalProfit: number;
+}
+
 interface AppContextType {
   loading: boolean;
   customers: Customer[];
@@ -38,6 +47,11 @@ interface AppContextType {
   getCustomerById: (id: string) => Customer | undefined;
   reportDate: Date;
   setReportDate: (date: Date) => void;
+  
+  companyInfo: CompanyInfo;
+  updateCompanyInfo: (info: CompanyInfo) => void;
+
+  lowStockItems: InventoryItem[];
   
   // Summaries
   dailySummary: {
@@ -60,6 +74,7 @@ interface AppContextType {
     refillStats: RefillSummary[];
     salesStats: SalesSummary[];
     expenseBreakdown: ExpenseBreakdown[];
+    topCustomers: CustomerSalesStat[];
   };
 
   // CRUD operations
@@ -89,6 +104,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [reportDate, setReportDate] = useState(new Date());
+
+  // Initialize companyInfo from LocalStorage or Constants
+  const [companyInfo, setCompanyInfoState] = useState<CompanyInfo>(() => {
+    const saved = localStorage.getItem('companyInfo');
+    return saved ? JSON.parse(saved) : SELLER_INFO;
+  });
+
+  const updateCompanyInfo = (info: CompanyInfo) => {
+      setCompanyInfoState(info);
+      localStorage.setItem('companyInfo', JSON.stringify(info));
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -351,10 +377,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- SUMMARIES ---
 
+  const lowStockItems = useMemo(() => {
+    return inventory.filter(item => {
+        const currentStock = item.full; // We generally track full tanks for stock alerts
+        return item.low_stock_threshold !== undefined && item.low_stock_threshold !== null && currentStock <= item.low_stock_threshold;
+    });
+  }, [inventory]);
+
   const dailySummary = useMemo(() => {
     const dateSales = sales.filter(s => isSameDay(s.date, reportDate));
     const income = dateSales.reduce((acc, s) => acc + s.total_amount, 0);
     
+    // Profit here is Gross Profit (Sales - Cost of Goods Sold)
     const profit = dateSales.reduce((acc, s) => {
         let saleProfit = 0;
         // Multi-item
@@ -381,7 +415,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dateExpenses = expenses.filter(e => isSameDay(e.date, reportDate));
     const expense = dateExpenses.reduce((acc, e) => acc + e.amount, 0);
     
-    const netProfit = profit - expense;
+    // CHANGED: Do NOT subtract expense from profit (Requested: Gross Profit only)
+    // const netProfit = profit - expense; 
 
     const salesByCustomerMap = dateSales.reduce((acc, sale) => {
         const customer = getCustomerById(sale.customer_id);
@@ -422,7 +457,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const refillStats = Array.from(refillMap.values());
 
-    return { income, expense, profit: netProfit, cashIncome, transferIncome, creditIncome, salesByCustomer, refillStats };
+    return { income, expense, profit: profit, cashIncome, transferIncome, creditIncome, salesByCustomer, refillStats };
   }, [sales, expenses, reportDate, customers, inventory]);
 
   const monthlySummary = useMemo(() => {
@@ -448,8 +483,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return acc + saleProfit;
       }, 0);
-      const profit = grossProfit - expense;
-
+      
       // Customer Monthly Stats
       const custMap = new Map<string, { id: string, name: string, branch: string, tanks: number, total: number, profit: number }>();
       
@@ -485,6 +519,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           entry.profit += currentSaleProfit;
       });
       const customerStats = Array.from(custMap.values()).sort((a, b) => b.total - a.total);
+
+      // Top Customers for Chart
+      const topCustomers: CustomerSalesStat[] = customerStats.slice(0, 5).map(c => ({
+          id: c.id,
+          name: c.name,
+          branch: c.branch,
+          totalSales: c.total,
+          totalProfit: c.profit
+      }));
 
       // Gas Return
       const gasReturnKg = monthExpenses.reduce((acc, e) => acc + (e.gas_return_kg || 0), 0);
@@ -570,7 +613,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const expenseBreakdown = Array.from(expenseBreakdownMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
 
-      return { income, expense, profit, customerStats, gasReturnKg, gasReturnValue, refillStats, salesStats, expenseBreakdown };
+      return { income, expense, profit: grossProfit, customerStats, gasReturnKg, gasReturnValue, refillStats, salesStats, expenseBreakdown, topCustomers };
   }, [sales, expenses, reportDate, customers, inventory]);
 
   const value = {
@@ -579,6 +622,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addSale, updateSale, deleteSale,
     addExpense, updateExpense, deleteExpense,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
+    companyInfo, updateCompanyInfo, lowStockItems
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

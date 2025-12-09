@@ -48,6 +48,7 @@ export interface CompanyInfo {
   address: string;
   taxId: string;
   phone: string;
+  logo?: string; // Base64 string
 }
 
 export interface BorrowedTank {
@@ -142,4 +143,5 @@ export interface InventoryItem {
   full: number;
   on_loan: number;
   notes?: string;
+  low_stock_threshold?: number; // New: Low stock alert threshold
 }

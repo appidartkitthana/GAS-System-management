@@ -16,7 +16,7 @@ const InventoryForm: React.FC<{
   category: InventoryCategory;
 }> = ({ item, onSave, onClose, category }) => {
   const [formData, setFormData] = useState(() => {
-    if (item) return { ...item, cost_price: item.cost_price?.toString() || '', notes: item.notes || '' };
+    if (item) return { ...item, cost_price: item.cost_price?.toString() || '', notes: item.notes || '', low_stock_threshold: item.low_stock_threshold?.toString() || '' };
     return {
       category: category,
       tank_brand: category === InventoryCategory.GAS ? Brand.PTT : null,
@@ -27,6 +27,7 @@ const InventoryForm: React.FC<{
       on_loan: 0,
       cost_price: '',
       notes: '',
+      low_stock_threshold: '',
     };
   });
 
@@ -48,6 +49,7 @@ const InventoryForm: React.FC<{
       tank_brand: category === InventoryCategory.ACCESSORY ? null : formData.tank_brand,
       tank_size: category === InventoryCategory.ACCESSORY ? null : formData.tank_size,
       notes: formData.notes,
+      low_stock_threshold: formData.low_stock_threshold ? parseInt(formData.low_stock_threshold.toString(), 10) : null,
     };
 
     if (item) {
@@ -85,6 +87,8 @@ const InventoryForm: React.FC<{
       
       <input name="cost_price" value={formData.cost_price} onChange={handleChange} placeholder="ราคาต้นทุน (บาท)" type="number" className="w-full p-2 border rounded" />
       
+      <input name="low_stock_threshold" value={formData.low_stock_threshold} onChange={handleChange} placeholder="แจ้งเตือนเมื่อต่ำกว่า (จำนวน)" type="number" className="w-full p-2 border rounded border-orange-200 focus:ring-orange-200" />
+
       <textarea name="notes" value={formData.notes} onChange={handleChange} placeholder="Note / รายละเอียดเพิ่มเติม" className="w-full p-2 border rounded" rows={2} />
 
       <div className="flex justify-end space-x-2 mt-2">
@@ -157,27 +161,33 @@ const Inventory: React.FC = () => {
       )}
 
       <div className="space-y-3">
-        {filteredInventory.map((item: InventoryItem) => (
-          <Card key={item.id}>
-            <h3 className="font-bold text-lg text-sky-700 pr-16">{item.category === InventoryCategory.ACCESSORY ? item.name : `${item.tank_brand} - ${item.tank_size}`}</h3>
-            <div className="grid grid-cols-4 gap-2 mt-2 text-center">
-              <div><p className="text-xs text-gray-500">ทั้งหมด</p><p className="font-bold text-xl">{item.total}</p></div>
-              {item.category !== InventoryCategory.ACCESSORY && (
-                  <>
-                    <div><p className="text-xs text-green-500">เต็ม</p><p className="font-bold text-xl text-green-600">{item.full}</p></div>
-                    <div><p className="text-xs text-orange-500">เปล่า</p><p className="font-bold text-xl text-orange-600">{item.total - item.full - (item.on_loan || 0)}</p></div>
-                  </>
-              )}
-              <div><p className="text-xs text-blue-500">ถูกยืม</p><p className="font-bold text-xl text-blue-600">{item.on_loan}</p></div>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">ต้นทุน: {item.cost_price?.toLocaleString() || 0} ฿</p>
-            {item.notes && <p className="text-xs text-gray-500 mt-1 italic">Note: {item.notes}</p>}
-            <div className="absolute top-3 right-3 flex space-x-2">
-              <button onClick={() => handleOpenModal(item)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
-              <button onClick={() => deleteInventoryItem(item.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
-            </div>
-          </Card>
-        ))}
+        {filteredInventory.map((item: InventoryItem) => {
+          const isLowStock = item.low_stock_threshold !== undefined && item.low_stock_threshold !== null && item.full <= item.low_stock_threshold;
+          return (
+            <Card key={item.id} className={isLowStock ? 'border border-red-300 ring-2 ring-red-100' : ''}>
+                {isLowStock && <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-bl rounded-tr">สินค้าใกล้หมด</div>}
+                <h3 className="font-bold text-lg text-sky-700 pr-16">{item.category === InventoryCategory.ACCESSORY ? item.name : `${item.tank_brand} - ${item.tank_size}`}</h3>
+                <div className="grid grid-cols-4 gap-2 mt-2 text-center">
+                <div><p className="text-xs text-gray-500">ทั้งหมด</p><p className="font-bold text-xl">{item.total}</p></div>
+                {item.category !== InventoryCategory.ACCESSORY && (
+                    <>
+                        <div><p className="text-xs text-green-500">เต็ม</p><p className={`font-bold text-xl ${isLowStock ? 'text-red-600' : 'text-green-600'}`}>{item.full}</p></div>
+                        <div><p className="text-xs text-orange-500">เปล่า</p><p className="font-bold text-xl text-orange-600">{item.total - item.full - (item.on_loan || 0)}</p></div>
+                    </>
+                )}
+                <div><p className="text-xs text-blue-500">ถูกยืม</p><p className="font-bold text-xl text-blue-600">{item.on_loan}</p></div>
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                    <p className="text-xs text-gray-400">ทุน: {item.cost_price?.toLocaleString() || 0} ฿</p>
+                    {item.low_stock_threshold && <p className="text-xs text-gray-400">เตือนเมื่อต่ำกว่า: {item.low_stock_threshold}</p>}
+                </div>
+                {item.notes && <p className="text-xs text-gray-500 mt-1 italic">Note: {item.notes}</p>}
+                <div className="absolute top-3 right-3 flex space-x-2">
+                <button onClick={() => handleOpenModal(item)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
+                <button onClick={() => deleteInventoryItem(item.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
+                </div>
+            </Card>
+        )})}
       </div>
 
       <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingItem ? 'แก้ไขสต็อก' : 'เพิ่มสต็อกใหม่'}>
