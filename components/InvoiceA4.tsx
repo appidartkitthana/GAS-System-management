@@ -41,9 +41,7 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
             html, body {
                height: auto;
                overflow: visible;
-            }
-            body {
-              background: white;
+               background: white;
             }
             body * {
               visibility: hidden;
@@ -52,12 +50,12 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
               visibility: visible;
             }
             #invoice-a4 {
-              position: relative;
+              position: absolute;
               left: 0;
               top: 0;
               width: 210mm;
-              min-height: 297mm; /* Changed from height to min-height */
               height: auto;
+              min-height: 297mm;
               margin: 0;
               padding: 10mm 15mm;
               background: white;
@@ -67,7 +65,8 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
             .no-print {
               display: none !important;
             }
-            /* Ensure table rows don't break awkwardly */
+            /* Table formatting for print */
+            thead { display: table-header-group; }
             tr { page-break-inside: avoid; }
           }
         `}</style>
@@ -78,208 +77,161 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
           <ul className="list-disc ml-5 text-sm">
               <li>ตั้งค่าขนาดกระดาษเป็น <strong>A4</strong></li>
               <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default (0)</strong></li>
-              <li>Scale: <strong>100%</strong> หรือ <strong>Fit to Paper</strong></li>
+              <li>Scale: <strong>100%</strong></li>
           </ul>
       </div>
 
       <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700 flex flex-col">
         
-        {/* Header */}
-        <div className="flex justify-between items-start mb-6">
-            <div className="flex items-center">
-                {seller.logo ? (
-                    <img src={seller.logo} alt="Logo" className="h-24 w-auto mr-4 object-contain" />
-                ) : (
-                    <div className="w-16 h-16 rounded-full border-2 border-sky-600 flex items-center justify-center text-sky-700 font-bold text-xs mr-4">
-                        LOGO
-                    </div>
+        {/* Header Section */}
+        <div className="flex justify-between items-start mb-6 pb-4 border-b-2 border-green-500">
+            {/* Left: Seller Info */}
+            <div className="flex gap-4 w-7/12">
+                {seller.logo && (
+                    <img src={seller.logo} alt="Logo" className="h-20 w-auto object-contain flex-shrink-0" />
                 )}
+                <div className="flex flex-col justify-center">
+                    <h1 className="text-xl font-bold text-gray-800">{seller.name}</h1>
+                    <p className="text-xs text-gray-600 leading-tight mt-1">{seller.address}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+                         <p><strong>โทร:</strong> {seller.phone}</p>
+                         <p><strong>เลขประจำตัวผู้เสียภาษี:</strong> {seller.taxId}</p>
+                    </div>
+                </div>
             </div>
-            <div className="text-right">
-                <p className="text-xs text-gray-500">เอกสารออกเป็นชุด</p>
-                <p className="text-xs text-gray-500">(ต้นฉบับ)</p>
-                <h1 className="text-3xl font-bold text-green-500 mt-1">
+
+            {/* Right: Document Info */}
+            <div className="w-5/12 text-right flex flex-col items-end">
+                 <h2 className="text-2xl font-bold text-green-600 tracking-wide uppercase">
                     {isTaxInvoice ? 'ใบเสร็จรับเงิน/ใบกำกับภาษี' : 'ใบเสร็จรับเงิน'}
-                </h1>
+                 </h2>
+                 <p className="text-xs text-gray-400 mb-2">RECEIPT / TAX INVOICE</p>
+                 <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-right mt-1">
+                    <span className="font-bold text-gray-700">เลขที่เอกสาร:</span>
+                    <span className="font-medium text-gray-900">{sale.invoice_number}</span>
+                    <span className="font-bold text-gray-700">วันที่:</span>
+                    <span className="font-medium text-gray-900">{new Date(sale.date).toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>
+                 </div>
+                 <div className="mt-2 text-[10px] text-gray-400 border border-gray-300 px-2 py-0.5 rounded">
+                     เอกสารออกเป็นชุด (ต้นฉบับ)
+                 </div>
             </div>
         </div>
 
-        {/* Info Grid */}
-        <div className="grid grid-cols-12 gap-4 mb-6 bg-green-50/30 p-4 rounded-lg border border-green-100">
-            {/* Seller */}
-            <div className="col-span-7 space-y-1">
-                <div className="flex">
-                    <span className="w-24 font-bold text-gray-800">ผู้ขาย :</span>
-                    <span className="font-bold text-gray-800">{seller.name}</span>
-                </div>
-                <div className="flex">
-                    <span className="w-24 flex-shrink-0">ที่อยู่ :</span>
-                    <span>{seller.address}</span>
-                </div>
-                <div className="flex">
-                    <span className="w-24">เลขที่ภาษี :</span>
-                    <span>{seller.taxId}</span>
-                </div>
-                 <div className="flex">
-                    <span className="w-24">โทรศัพท์ :</span>
-                    <span>{seller.phone}</span>
-                </div>
-            </div>
-
-            {/* Document Details */}
-            <div className="col-span-5 space-y-1 pl-4 border-l border-green-200">
-                 <div className="flex justify-between">
-                    <span className="font-bold bg-green-100 px-2 rounded text-green-800">เลขที่เอกสาร :</span>
-                    <span className="font-bold">{sale.invoice_number}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span className="font-bold">วันที่ออก :</span>
-                    <span>{new Date(sale.date).toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>
-                </div>
-            </div>
-        </div>
-
-        {/* Customer & Contact */}
-        <div className="grid grid-cols-12 gap-4 mb-8">
-             <div className="col-span-7 space-y-1">
-                <div className="flex">
-                    <span className="w-24 font-bold text-gray-800">ลูกค้า :</span>
-                    <span className="font-bold text-gray-800">{customer.name} {customer.branch}</span>
-                </div>
-                <div className="flex">
-                    <span className="w-24 flex-shrink-0">ที่อยู่ :</span>
-                    <span>{customer.address || '-'}</span>
-                </div>
-                <div className="flex">
-                    <span className="w-24">เลขที่ภาษี :</span>
-                    <span>{customer.tax_id || '-'}</span>
-                </div>
-            </div>
-             <div className="col-span-5 pl-4">
-                <p className="font-bold text-gray-600 mb-1">ติดต่อกลับที่ :</p>
-                <p className="text-sm flex items-center gap-2"><span className="font-bold text-gray-800">{seller.name}</span></p>
-                <p className="text-sm flex items-center gap-2">📞 {seller.phone}</p>
-            </div>
+        {/* Customer Info Section */}
+        <div className="flex mb-6 bg-slate-50 border border-slate-200 rounded p-4">
+             <div className="w-full">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">ลูกค้า / Customer</h3>
+                <p className="text-lg font-bold text-gray-800 leading-none mb-1">{customer.name} {customer.branch ? `(${customer.branch})` : ''}</p>
+                <p className="text-sm text-gray-600 mb-2">{customer.address || '-'}</p>
+                <p className="text-sm text-gray-600"><strong>เลขประจำตัวผู้เสียภาษี:</strong> {customer.tax_id || '-'}</p>
+             </div>
         </div>
 
         {/* Items Table */}
         <div className="flex-grow">
-            <table className="w-full mb-8 border-collapse">
+            <table className="w-full mb-6 border-collapse table-fixed">
                 <thead>
-                    <tr className="bg-green-100 text-gray-700">
-                        <th className="py-2 px-2 border border-green-200 w-10 text-center">#</th>
-                        <th className="py-2 px-2 border border-green-200 text-left">คำอธิบาย</th>
-                        <th className="py-2 px-2 border border-green-200 w-20 text-right">จำนวน</th>
-                        <th className="py-2 px-2 border border-green-200 w-24 text-right">ราคา</th>
-                        <th className="py-2 px-2 border border-green-200 w-20 text-right">ส่วนลด</th>
-                        <th className="py-2 px-2 border border-green-200 w-16 text-center">VAT</th>
-                        <th className="py-2 px-2 border border-green-200 w-32 text-right">จำนวนเงิน</th>
+                    <tr className="bg-green-600 text-white text-xs uppercase tracking-wider">
+                        <th className="py-2 px-2 w-12 text-center rounded-tl">#</th>
+                        <th className="py-2 px-2 w-auto text-left">รายการ (Description)</th>
+                        <th className="py-2 px-2 w-20 text-right">จำนวน</th>
+                        <th className="py-2 px-2 w-24 text-right">ราคา/หน่วย</th>
+                        <th className="py-2 px-2 w-24 text-right rounded-tr">จำนวนเงิน</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {items.map((item, idx) => {
-                        return (
-                            <tr key={idx}>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">{idx + 1}.</td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 align-top">
-                                    <p className="font-bold text-gray-800">LPG (ถัง {item.size})</p>
-                                    <p className="text-gray-500 text-xs">แบรนด์: {item.brand}</p>
-                                </td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.quantity.toFixed(2)}</td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">0.00</td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-center align-top">7%</td>
-                                <td className="py-2 px-2 border-l border-r border-gray-100 text-right align-top">{item.total_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                            </tr>
-                        );
-                    })}
-                    <tr className="border-t border-gray-200">
-                        <td colSpan={7}></td>
-                    </tr>
+                <tbody className="text-sm">
+                    {items.map((item, idx) => (
+                        <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-2 text-center text-gray-500">{idx + 1}</td>
+                            <td className="py-3 px-2">
+                                <div className="font-bold text-gray-800">แก๊ส {item.brand} (ขนาด {item.size})</div>
+                            </td>
+                            <td className="py-3 px-2 text-right">{item.quantity}</td>
+                            <td className="py-3 px-2 text-right">{item.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                            <td className="py-3 px-2 text-right font-medium">{item.total_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        </tr>
+                    ))}
+                    {/* Add blank rows to fill space if needed, or just padding */}
                 </tbody>
             </table>
         </div>
 
         {/* Summary Section */}
-        <div className="flex items-start mb-8 break-inside-avoid">
-            {/* Left Side: Summary Text */}
-            <div className="flex-grow pr-8 space-y-1">
-                {sale.gas_return_kg && (
-                    <div className="flex justify-between text-sm text-blue-700 bg-blue-50 p-2 rounded mb-2">
-                        <span>รายการหัก: คืนเนื้อแก๊ส ({sale.gas_return_kg} กก. @ {sale.gas_return_price})</span>
-                        <span>-{returnDeduction.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
+        <div className="flex flex-col sm:flex-row items-start justify-between border-t-2 border-gray-200 pt-4 mb-8 break-inside-avoid">
+            
+            {/* Left: Text Amount & Notes */}
+            <div className="w-full sm:w-7/12 pr-8 space-y-4">
+                 {/* Return deduction notice */}
+                 {sale.gas_return_kg && (
+                    <div className="bg-blue-50 text-blue-800 p-2 rounded text-xs border border-blue-100 flex justify-between items-center">
+                        <span><strong>รายการหัก:</strong> คืนเนื้อแก๊ส ({sale.gas_return_kg} กก. @ {sale.gas_return_price})</span>
+                        <span className="font-bold">-{returnDeduction.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
                     </div>
                 )}
-                <div className="flex justify-between text-xs text-gray-600">
-                    <span>มูลค่าก่อนภาษี</span>
-                    <span>{preVatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
+                
+                <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                     <p className="text-xs text-gray-500 mb-1">จำนวนเงินตัวอักษร (Amount in Words)</p>
+                     <p className="text-lg font-bold text-green-700">{thaiBahtText(finalTotal)}</p>
                 </div>
-                 <div className="flex justify-between text-xs text-gray-600">
-                    <span>ภาษีมูลค่าเพิ่ม 7%</span>
-                    <span>{vatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
-                </div>
-                 <div className="flex justify-between font-bold text-gray-800 pt-2">
-                    <span>จำนวนเงินทั้งสิ้น (ตัวอักษร)</span>
-                    <span className="text-right">{thaiBahtText(finalTotal)}</span>
+
+                <div className="text-xs text-gray-500 space-y-1">
+                    <p><strong>ชำระโดย:</strong> {sale.payment_method}</p>
+                    <p><strong>หมายเหตุ:</strong> สินค้าซื้อแล้วไม่รับเปลี่ยนหรือคืน</p>
                 </div>
             </div>
 
-            {/* Right Side: Totals */}
-            <div className="w-64 bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
-                <div className="flex justify-between items-center bg-green-100/50 p-3 border-b border-green-100">
-                    <span className="font-bold text-gray-700">จำนวนเงินทั้งสิ้น</span>
-                    <span className="font-bold text-xl text-gray-800">{finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span>
-                </div>
-                <div className="p-3 space-y-2">
-                     <div className="flex justify-between text-sm">
-                        <span>จำนวนเงินที่ถูกหัก ณ ที่จ่าย</span>
-                        <span>0.00 บาท</span>
+            {/* Right: Calculation */}
+            <div className="w-full sm:w-5/12 pl-4">
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-gray-600">
+                        <span>รวมเป็นเงิน (Subtotal)</span>
+                        <span className="font-medium">{subTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        {/* Payment Info */}
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 flex text-sm break-inside-avoid">
-            <div className="w-24 font-bold">ชำระเงิน</div>
-            <div className="flex-grow grid grid-cols-2 gap-4">
-                <div>
-                     <p><span className="font-semibold">วันที่ชำระ :</span> {new Date(sale.date).toLocaleDateString('th-TH')}</p>
-                     <p><span className="font-semibold">จำนวนเงิน :</span> {finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</p>
-                </div>
-                <div>
-                    <p><span className="font-semibold">โดย :</span> {sale.payment_method}</p>
+                     {sale.gas_return_kg && (
+                         <div className="flex justify-between text-blue-600">
+                            <span>หักคืนเนื้อ</span>
+                            <span>-{returnDeduction.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span>
+                        </div>
+                     )}
+                     {isTaxInvoice && (
+                         <>
+                            <div className="flex justify-between text-gray-600">
+                                <span>มูลค่าก่อนภาษี (Pre-VAT)</span>
+                                <span>{preVatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>ภาษีมูลค่าเพิ่ม 7% (VAT)</span>
+                                <span>{vatAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span>
+                            </div>
+                         </>
+                     )}
+                     
+                     <div className="flex justify-between items-center bg-green-600 text-white p-2 rounded mt-2 shadow-sm">
+                        <span className="font-bold">ยอดสุทธิ (Grand Total)</span>
+                        <span className="font-bold text-xl">{finalTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span>
+                    </div>
                 </div>
             </div>
         </div>
 
         {/* Signatures */}
-        <div className="grid grid-cols-4 gap-4 text-center text-xs mt-auto break-inside-avoid">
-             <div className="col-span-1">
-                 <div className="h-16 border-b border-dotted border-gray-400 mb-2"></div>
-                 <p>ผู้ออกเอกสาร</p>
+        <div className="grid grid-cols-2 gap-8 mt-auto pt-8 break-inside-avoid">
+             <div className="text-center">
+                 <div className="border-b border-gray-300 h-24 mb-2"></div>
+                 <p className="text-xs font-bold text-gray-600">ผู้รับเงิน / Collector</p>
+                 <p className="text-[10px] text-gray-400">วันที่ ........................................</p>
              </div>
-             <div className="col-span-1">
-                 <div className="h-16 border-b border-dotted border-gray-400 mb-2"></div>
-                 <p>ผู้รับเงิน</p>
-             </div>
-             <div className="col-span-1">
-                 <div className="h-16 border-b border-dotted border-gray-400 mb-2 flex items-end justify-center">
-                    <div className="border-2 border-gray-400 rounded-full w-12 h-12 flex items-center justify-center font-bold text-gray-400">
-                        Stamp
-                    </div>
-                 </div>
-                 <p>ตราประทับ (ผู้ขาย)</p>
-             </div>
-             <div className="col-span-1">
-                 <div className="h-16 border-b border-dotted border-gray-400 mb-2"></div>
-                 <p>ผู้รับเอกสาร</p>
+             <div className="text-center">
+                 <div className="border-b border-gray-300 h-24 mb-2"></div>
+                 <p className="text-xs font-bold text-gray-600">ผู้รับสินค้า / Receiver</p>
+                 <p className="text-[10px] text-gray-400">วันที่ ........................................</p>
              </div>
         </div>
 
       </div>
 
-      <div className="fixed bottom-8 right-8 no-print">
+      <div className="fixed bottom-8 right-8 no-print z-50">
         <button 
             onClick={handlePrint} 
             className="bg-green-600 text-white px-6 py-3 rounded-full shadow-lg hover:bg-green-700 font-bold flex items-center gap-2 transition-transform hover:scale-105"

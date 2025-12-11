@@ -61,7 +61,7 @@ interface AppContextType {
     cashIncome: number;
     transferIncome: number;
     creditIncome: number;
-    salesByCustomer: { customerId: string; customerName: string; totalAmount: number }[];
+    salesByCustomer: { customerId: string; customerName: string; customerBranch: string; totalAmount: number; totalTanks: number; totalProfit: number }[];
     refillStats: RefillSummary[]; // New field for Daily Refills
   };
   monthlySummary: {
@@ -415,20 +415,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dateExpenses = expenses.filter(e => isSameDay(e.date, reportDate));
     const expense = dateExpenses.reduce((acc, e) => acc + e.amount, 0);
     
-    // CHANGED: Do NOT subtract expense from profit (Requested: Gross Profit only)
-    // const netProfit = profit - expense; 
-
     const salesByCustomerMap = dateSales.reduce((acc, sale) => {
         const customer = getCustomerById(sale.customer_id);
-        const customerName = customer ? `${customer.name} ${customer.branch ? '(' + customer.branch + ')' : ''}` : 'ลูกค้าทั่วไป';
-        if (!acc.get(sale.customer_id)) {
-            acc.set(sale.customer_id, { customerId: sale.customer_id, customerName, totalAmount: 0 });
+        const customerName = customer ? customer.name : 'ลูกค้าทั่วไป';
+        const customerBranch = customer ? customer.branch || '' : '';
+        
+        let saleProfit = 0;
+        if (sale.items && Array.isArray(sale.items) && sale.items.length > 0) {
+            saleProfit = sale.items.reduce((itemAcc, item) => {
+                const cost = item.cost_price || getStandardCost(item.brand, item.size);
+                return itemAcc + (item.total_price - (cost * item.quantity));
+            }, 0);
+        } else {
+            const cost = sale.cost_price || getStandardCost(sale.tank_brand, sale.tank_size);
+            saleProfit = sale.total_amount - (cost * sale.quantity);
         }
-        acc.get(sale.customer_id)!.totalAmount += sale.total_amount;
-        return acc;
-    }, new Map<string, { customerId: string; customerName: string; totalAmount: number }>());
+        if (sale.gas_return_kg && sale.gas_return_price) {
+             saleProfit -= (sale.gas_return_kg * sale.gas_return_price);
+        }
 
-    const salesByCustomer = (Array.from(salesByCustomerMap.values()) as { customerId: string; customerName: string; totalAmount: number }[]).sort((a, b) => b.totalAmount - a.totalAmount);
+        if (!acc.get(sale.customer_id)) {
+            acc.set(sale.customer_id, { 
+                customerId: sale.customer_id, 
+                customerName, 
+                customerBranch,
+                totalAmount: 0, 
+                totalTanks: 0, 
+                totalProfit: 0 
+            });
+        }
+        const entry = acc.get(sale.customer_id)!;
+        entry.totalAmount += sale.total_amount;
+        entry.totalTanks += sale.quantity; // Assumes quantity is total tank count (calculated in addSale)
+        entry.totalProfit += saleProfit;
+        return acc;
+    }, new Map<string, { customerId: string; customerName: string; customerBranch: string; totalAmount: number; totalTanks: number; totalProfit: number }>());
+
+    const salesByCustomer = (Array.from(salesByCustomerMap.values()) as { customerId: string; customerName: string; customerBranch: string; totalAmount: number; totalTanks: number; totalProfit: number }[]).sort((a, b) => b.totalAmount - a.totalAmount);
 
     // New: Refill Summary for Daily
     const refillMap = new Map<string, RefillSummary>();

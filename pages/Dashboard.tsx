@@ -13,69 +13,69 @@ const SummaryCard: React.FC<{ title: string; amount: number; colorClass: string 
     </Card>
 );
 
-const FinancialBarChart: React.FC<{ income: number; expense: number }> = ({ income, expense }) => {
+const FinancialCircleChart: React.FC<{ income: number; expense: number }> = ({ income, expense }) => {
     const total = income + expense;
-    if (total === 0) {
-        return <div className="text-center text-gray-400 py-8">ไม่มีข้อมูลสำหรับช่วงเวลานี้</div>;
-    }
-    const logIncome = income > 0 ? Math.log10(income + 1) : 0;
-    const logExpense = expense > 0 ? Math.log10(expense + 1) : 0;
-    const maxLog = Math.max(logIncome, logExpense);
-    let incomeHeight = maxLog > 0 ? (logIncome / maxLog) * 100 : 0;
-    if (income > 0 && incomeHeight < 2) incomeHeight = 2;
-    let expenseHeight = maxLog > 0 ? (logExpense / maxLog) * 100 : 0;
-    if (expense > 0 && expenseHeight < 2) expenseHeight = 2;
+    // Calculate percentage relative to total flow for visualization magnitude
+    const incomePercent = total > 0 ? (income / total) * 100 : 0;
+    const expensePercent = total > 0 ? (expense / total) * 100 : 0;
 
     return (
-        <div className="h-48 flex items-end justify-around pt-4 border-t border-gray-200/80 mt-4">
-            <div className="flex flex-col items-center w-1/3">
-                <p className="text-sm font-semibold text-green-600">{income.toLocaleString('th-TH')}</p>
-                <div className="w-12 bg-gradient-to-t from-green-400 to-green-500 rounded-t-lg transition-all duration-500 ease-out" style={{ height: `${incomeHeight}%` }}></div>
-                <p className="text-xs text-gray-500 mt-1">รายรับ</p>
+        <div className="flex flex-col sm:flex-row justify-center items-center py-6 gap-8 sm:gap-16 mt-4 border-t border-gray-100">
+            {/* Income */}
+            <div className="flex flex-col items-center">
+                <div className="relative w-48 h-48">
+                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                        {/* Background Ring */}
+                        <path className="text-gray-100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="2.5" />
+                        {/* Value Ring */}
+                        <path className="text-blue-500" strokeDasharray={`${incomePercent}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-green-500 font-bold text-2xl">{income.toLocaleString('th-TH')}</span>
+                        <span className="text-sm text-gray-500 mt-1">รายรับ</span>
+                    </div>
+                </div>
             </div>
-            <div className="flex flex-col items-center w-1/3">
-                <p className="text-sm font-semibold text-red-600">{expense.toLocaleString('th-TH')}</p>
-                <div className="w-12 bg-gradient-to-t from-red-400 to-red-500 rounded-t-lg transition-all duration-500 ease-out" style={{ height: `${expenseHeight}%` }}></div>
-                <p className="text-xs text-gray-500 mt-1">รายจ่าย</p>
+
+            {/* Expense */}
+            <div className="flex flex-col items-center">
+                <div className="relative w-48 h-48">
+                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                         <path className="text-gray-100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="2.5" />
+                         <path className="text-yellow-400" strokeDasharray={`${expensePercent}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                         <span className="text-red-600 font-bold text-2xl">{expense.toLocaleString('th-TH')}</span>
+                         <span className="text-sm text-gray-500 mt-1">รายจ่าย</span>
+                    </div>
+                </div>
             </div>
         </div>
     );
 };
 
-const TopCustomersBarChart: React.FC<{ data: { name: string; totalSales: number; totalProfit: number }[] }> = ({ data }) => {
-    if (data.length === 0) return <div className="text-center text-gray-400 py-8">ไม่มีข้อมูลลูกค้า</div>;
-
-    const maxVal = Math.max(...data.map(d => d.totalSales));
-    
+const CustomerStatsList: React.FC<{ data: { name: string; branch?: string; tanks: number; profit: number; total: number }[] }> = ({ data }) => {
     return (
-        <div className="space-y-4 pt-4">
-            {data.map((c, i) => (
-                <div key={i}>
-                    <div className="flex justify-between text-xs text-gray-600 mb-1">
-                        <span className="truncate w-1/2">{c.name}</span>
-                        <div className="flex gap-2">
-                             <span>ยอด: {c.totalSales.toLocaleString()}</span>
-                             <span className="text-sky-600">กำไร: {c.totalProfit.toLocaleString()}</span>
+        <div className="space-y-0">
+             {data.length > 0 ? data.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors px-2 rounded-lg">
+                    <div className="flex-1 min-w-0 pr-2">
+                        <div className="font-semibold text-gray-800 text-sm truncate">{item.name}</div>
+                        <div className="text-xs text-gray-400 truncate">{item.branch || 'สำนักงานใหญ่'}</div>
+                    </div>
+                    <div className="flex items-center gap-2 sm:gap-6 text-sm">
+                        <div className="text-center w-8" title="จำนวน">
+                            <span className="block font-bold text-gray-700">{item.tanks}</span>
+                        </div>
+                        <div className="text-right w-16 sm:w-20" title="กำไร (ประมาณการ)">
+                            <span className="block font-medium text-gray-500 text-xs sm:text-sm">{item.profit.toLocaleString()}</span>
+                        </div>
+                        <div className="text-right w-20 sm:w-24" title="ยอดรวม">
+                             <span className="block font-bold text-sky-600">{item.total.toLocaleString()}</span>
                         </div>
                     </div>
-                    <div className="h-4 bg-gray-100 rounded-full overflow-hidden flex relative">
-                         {/* Sales Bar */}
-                        <div 
-                            className="h-full bg-orange-400 absolute top-0 left-0 rounded-full" 
-                            style={{ width: `${(c.totalSales / maxVal) * 100}%` }}
-                        ></div>
-                         {/* Profit Indicator (Overlay) */}
-                        <div 
-                            className="h-full bg-sky-500 absolute top-0 left-0 rounded-full opacity-60" 
-                            style={{ width: `${(c.totalProfit / maxVal) * 100}%` }}
-                        ></div>
-                    </div>
                 </div>
-            ))}
-            <div className="flex justify-center gap-4 text-xs mt-2">
-                <div className="flex items-center"><span className="w-3 h-3 bg-orange-400 rounded mr-1"></span>ยอดขาย</div>
-                <div className="flex items-center"><span className="w-3 h-3 bg-sky-500 opacity-60 rounded mr-1"></span>กำไร</div>
-            </div>
+            )) : <p className="text-center text-gray-400 py-4">ไม่มีข้อมูล</p>}
         </div>
     );
 };
@@ -117,6 +117,7 @@ const DonutChart: React.FC<{ data: { name: string, value: number, color: string 
 const Dashboard: React.FC = () => {
     const { dailySummary, monthlySummary, reportDate, setReportDate, lowStockItems } = useAppContext();
     const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
+    const [gasReturnPrice, setGasReturnPrice] = useState<string>('');
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const [year, month, day] = e.target.value.split('-').map(Number);
@@ -126,11 +127,34 @@ const Dashboard: React.FC = () => {
     const summary = viewMode === 'daily' ? dailySummary : monthlySummary;
     const titlePrefix = viewMode === 'daily' ? 'รายวัน' : 'รายเดือน';
     
+    // Calculate custom return value
+    const returnKg = monthlySummary.gasReturnKg;
+    const pricePerKg = parseFloat(gasReturnPrice) || 0;
+    const customReturnValue = returnKg * pricePerKg;
+
     const paymentChartData = [
         { name: PaymentMethod.CASH, value: dailySummary.cashIncome, color: 'text-lime-500' },
         { name: PaymentMethod.TRANSFER, value: dailySummary.transferIncome, color: 'text-purple-500' },
         { name: PaymentMethod.CREDIT, value: dailySummary.creditIncome, color: 'text-blue-500' },
     ].filter(item => item.value > 0);
+
+    // Prepare Customer Data for List View
+    const dailyCustomerData = dailySummary.salesByCustomer.map(s => ({
+        name: s.customerName,
+        branch: s.customerBranch,
+        tanks: s.totalTanks,
+        profit: s.totalProfit,
+        total: s.totalAmount
+    }));
+
+    const monthlyCustomerData = monthlySummary.customerStats.map(s => ({
+        name: s.name,
+        branch: s.branch,
+        tanks: s.tanks,
+        profit: s.profit,
+        total: s.total
+    }));
+
 
     return (
     <div>
@@ -171,13 +195,32 @@ const Dashboard: React.FC = () => {
              <div className="flex space-x-2 mb-4">
                 <SummaryCard title="รายรับ" amount={summary.income} colorClass="text-green-500" />
                 <SummaryCard title="รายจ่าย" amount={summary.expense} colorClass="text-red-500" />
-                <SummaryCard title="กำไร" amount={summary.profit} colorClass="text-sky-500" />
+                <SummaryCard title="กำไรขั้นต้น" amount={summary.profit} colorClass="text-sky-500" />
             </div>
-            <FinancialBarChart income={summary.income} expense={summary.expense} />
+            <FinancialCircleChart income={summary.income} expense={summary.expense} />
         </Card>
 
         {viewMode === 'daily' && (
             <>
+                <Card>
+                    <h2 className="text-lg font-semibold mb-4 text-gray-700 flex justify-between items-center">
+                        <span>ยอดขายลูกค้าทั้งหมด (วันนี้)</span>
+                        <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-1 rounded">เรียงตามยอดขาย</span>
+                    </h2>
+                    {/* Header Row for List */}
+                    <div className="flex justify-between items-center px-2 pb-2 mb-2 border-b-2 border-gray-100 text-xs text-gray-500 font-semibold uppercase">
+                        <div>ลูกค้า</div>
+                        <div className="flex gap-2 sm:gap-6">
+                            <div className="w-8 text-center">จำนวน</div>
+                            <div className="w-16 sm:w-20 text-right">กำไร</div>
+                            <div className="w-20 sm:w-24 text-right">ยอดรวม</div>
+                        </div>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto pr-1">
+                        <CustomerStatsList data={dailyCustomerData} />
+                    </div>
+                </Card>
+
                 <Card>
                      <h2 className="text-lg font-semibold mb-2 text-red-700">สรุปเติมแก๊ส (วันนี้)</h2>
                      <div className="text-sm space-y-2">
@@ -217,26 +260,27 @@ const Dashboard: React.FC = () => {
                         </div>
                     </div>
                 </Card>
-                <Card>
-                    <h2 className="text-lg font-semibold mb-2 text-gray-700">ยอดขายตามลูกค้า (วันนี้)</h2>
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                        {dailySummary.salesByCustomer.length > 0 ? dailySummary.salesByCustomer.map((sale) => (
-                            <div key={sale.customerId} className="flex justify-between items-center text-sm py-1 border-b border-gray-100">
-                                <p className="text-gray-600 truncate">{sale.customerName}</p>
-                                <p className="font-semibold text-gray-800">{sale.totalAmount.toLocaleString('th-TH')} ฿</p>
-                            </div>
-                        )) : <p className="text-center text-gray-400 py-4">ไม่มีรายการขาย</p>}
-                    </div>
-                </Card>
             </>
         )}
 
         {viewMode === 'monthly' && (
             <>
-                 {/* Top Customers Chart */}
                  <Card>
-                    <h2 className="text-lg font-semibold mb-2 text-sky-700">ยอดขายลูกค้าสูงสุด 5 อันดับ</h2>
-                    <TopCustomersBarChart data={monthlySummary.topCustomers} />
+                    <h2 className="text-lg font-semibold mb-4 text-sky-700 flex justify-between items-center">
+                        <span>ยอดขายลูกค้าทั้งหมด (เดือนนี้)</span>
+                        <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-1 rounded">เรียงตามยอดขาย</span>
+                    </h2>
+                     <div className="flex justify-between items-center px-2 pb-2 mb-2 border-b-2 border-gray-100 text-xs text-gray-500 font-semibold uppercase">
+                        <div>ลูกค้า</div>
+                        <div className="flex gap-2 sm:gap-6">
+                            <div className="w-8 text-center">จำนวน</div>
+                            <div className="w-16 sm:w-20 text-right">กำไร</div>
+                            <div className="w-20 sm:w-24 text-right">ยอดรวม</div>
+                        </div>
+                    </div>
+                    <div className="max-h-96 overflow-y-auto pr-1">
+                         <CustomerStatsList data={monthlyCustomerData} />
+                    </div>
                  </Card>
 
                  {/* Sales Summary */}
@@ -290,14 +334,28 @@ const Dashboard: React.FC = () => {
                          ))}
                          {monthlySummary.refillStats.length === 0 && <p className="text-center text-gray-400 py-2">ไม่มีรายการเติมแก๊ส</p>}
                      </div>
-                     <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
-                         <div className="text-center p-2 bg-slate-100 rounded">
-                             <p className="text-xs text-gray-500">น้ำหนักคืนรวม</p>
-                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnKg.toFixed(2)} กก.</p>
+
+                     <div className="mt-4 pt-4 border-t">
+                         <div className="mb-2 flex items-center justify-center gap-2">
+                            <label className="text-sm font-semibold text-gray-600 text-red-500">1 กก. ราคา</label>
+                            <input 
+                                type="number" 
+                                value={gasReturnPrice} 
+                                onChange={(e) => setGasReturnPrice(e.target.value)}
+                                className="border border-red-300 rounded p-1 w-24 text-center text-red-600 font-bold focus:ring-red-500 focus:border-red-500"
+                                placeholder="0.00"
+                            />
+                            <span className="text-sm text-gray-500">บาท</span>
                          </div>
-                         <div className="text-center p-2 bg-slate-100 rounded">
-                             <p className="text-xs text-gray-500">มูลค่าคืนเนื้อ</p>
-                             <p className="font-bold text-blue-600">{monthlySummary.gasReturnValue.toLocaleString()} ฿</p>
+                         <div className="grid grid-cols-2 gap-4">
+                             <div className="text-center p-2 bg-slate-100 rounded">
+                                 <p className="text-xs text-gray-500">น้ำหนักคืนรวม</p>
+                                 <p className="font-bold text-blue-600">{returnKg.toFixed(2)} กก.</p>
+                             </div>
+                             <div className="text-center p-2 bg-slate-100 rounded">
+                                 <p className="text-xs text-gray-500">มูลค่าคืนเนื้อ (คำนวณ)</p>
+                                 <p className="font-bold text-red-600">{customReturnValue.toLocaleString()} ฿</p>
+                             </div>
                          </div>
                      </div>
                 </Card>
