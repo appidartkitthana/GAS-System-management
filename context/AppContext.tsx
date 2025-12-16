@@ -1,6 +1,7 @@
 
+
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo, Page } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 import { SELLER_INFO } from '../constants';
@@ -40,6 +41,8 @@ interface CustomerSalesStat {
 
 interface AppContextType {
   loading: boolean;
+  activePage: Page;
+  setActivePage: (page: Page) => void;
   customers: Customer[];
   sales: Sale[];
   expenses: Expense[];
@@ -50,6 +53,12 @@ interface AppContextType {
   
   companyInfo: CompanyInfo;
   updateCompanyInfo: (info: CompanyInfo) => void;
+
+  // Expense Types
+  expenseTypes: string[];
+  addExpenseType: (type: string) => void;
+  removeExpenseType: (type: string) => void;
+  updateExpenseType: (oldType: string, newType: string) => void;
 
   lowStockItems: InventoryItem[];
   
@@ -99,6 +108,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = useState(true);
+  const [activePage, setActivePage] = useState<Page>('DASHBOARD');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -111,10 +121,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : SELLER_INFO;
   });
 
+  // Initialize Expense Types from LocalStorage or Default Enum
+  const [expenseTypes, setExpenseTypes] = useState<string[]>(() => {
+    const saved = localStorage.getItem('expenseTypes');
+    return saved ? JSON.parse(saved) : Object.values(ExpenseType);
+  });
+
   const updateCompanyInfo = (info: CompanyInfo) => {
       setCompanyInfoState(info);
       localStorage.setItem('companyInfo', JSON.stringify(info));
   };
+
+  const saveExpenseTypes = (types: string[]) => {
+      setExpenseTypes(types);
+      localStorage.setItem('expenseTypes', JSON.stringify(types));
+  };
+
+  const addExpenseType = (type: string) => {
+      if (!expenseTypes.includes(type)) {
+          saveExpenseTypes([...expenseTypes, type]);
+      }
+  };
+
+  const removeExpenseType = (type: string) => {
+      saveExpenseTypes(expenseTypes.filter(t => t !== type));
+  };
+
+  const updateExpenseType = (oldType: string, newType: string) => {
+      const idx = expenseTypes.indexOf(oldType);
+      if (idx !== -1) {
+          const newTypes = [...expenseTypes];
+          newTypes[idx] = newType;
+          saveExpenseTypes(newTypes);
+      }
+  };
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -640,12 +681,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [sales, expenses, reportDate, customers, inventory]);
 
   const value = {
-    loading, customers, sales, expenses, inventory, getCustomerById, reportDate, setReportDate, dailySummary, monthlySummary,
+    loading, activePage, setActivePage, customers, sales, expenses, inventory, getCustomerById, reportDate, setReportDate, dailySummary, monthlySummary,
     addCustomer, updateCustomer, deleteCustomer,
     addSale, updateSale, deleteSale,
     addExpense, updateExpense, deleteExpense,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
-    companyInfo, updateCompanyInfo, lowStockItems
+    companyInfo, updateCompanyInfo, lowStockItems,
+    expenseTypes, addExpenseType, removeExpenseType, updateExpenseType
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

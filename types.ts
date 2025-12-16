@@ -1,4 +1,5 @@
 
+
 export enum Brand {
   PTT = 'PTT',
   WP = 'WP',
@@ -21,14 +22,12 @@ export enum InventoryCategory {
 
 export enum ExpenseType {
   REFILL = 'ค่าบรรจุก๊าซ',
+  FUEL = 'ค่าน้ำมัน',
+  ACCOUNTING = 'บัญชี',
+  TAX = 'ค่าภาษี',
   TRANSPORT = 'ค่าขนส่ง',
   TOLL = 'ค่าทางด่วน',
   LOADING = 'ค่าขึ้นถัง',
-  GENERAL = 'ค่าใช้จ่ายทั่วไป',
-  MISC = 'เบ็ดเตล็ด',
-  SALARY = 'เงินเดือนพนักงาน',
-  WATER = 'ค่าน้ำ',
-  ELECTRICITY = 'ค่าไฟ',
   OTHER = 'อื่นๆ',
 }
 
@@ -42,6 +41,8 @@ export enum InvoiceType {
   CASH = 'บิลเงินสด',
   TAX_INVOICE = 'ใบกำกับภาษี',
 }
+
+export type Page = 'DASHBOARD' | 'TRANSACTIONS' | 'CUSTOMERS' | 'INVENTORY' | 'SETTINGS';
 
 export interface CompanyInfo {
   name: string;

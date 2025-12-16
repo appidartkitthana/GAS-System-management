@@ -1,3 +1,5 @@
+
+
 import React, { useState } from 'react';
 import BottomNav from './components/BottomNav';
 import Dashboard from './pages/Dashboard';
@@ -6,13 +8,10 @@ import Customers from './pages/Customers';
 import Inventory from './pages/Inventory';
 import Settings from './pages/Settings';
 import { AppProvider, useAppContext } from './context/AppContext';
-
-export type Page = 'DASHBOARD' | 'TRANSACTIONS' | 'CUSTOMERS' | 'INVENTORY' | 'SETTINGS';
-
+import { Page } from './types';
 
 const AppContent: React.FC = () => {
-  const [activePage, setActivePage] = useState<Page>('DASHBOARD');
-  const { loading } = useAppContext();
+  const { loading, activePage, setActivePage } = useAppContext();
 
   const renderPage = () => {
     switch (activePage) {

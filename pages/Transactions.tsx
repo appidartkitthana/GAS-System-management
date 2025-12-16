@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import Card from '../components/Card';
@@ -8,12 +10,14 @@ import PencilIcon from '../components/icons/PencilIcon';
 import TrashIcon from '../components/icons/TrashIcon';
 import PrinterIcon from '../components/icons/PrinterIcon';
 import DocumentIcon from '../components/icons/DocumentIcon';
+import CogIcon from '../components/icons/CogIcon';
 import Modal from '../components/Modal';
 import Invoice from '../components/Invoice';
 import InvoiceA4 from '../components/InvoiceA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
 import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem } from '../types';
 import { formatDateForInput } from '../lib/utils';
+import Settings from './Settings';
 
 // --- FORMS ---
 
@@ -240,8 +244,12 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
 };
 
 const ExpenseForm: React.FC<{ expense: Expense | null; onSave: (data: Expense | Omit<Expense, 'id'>) => void; onClose: () => void; }> = ({ expense, onSave, onClose }) => {
+    const { expenseTypes, setActivePage } = useAppContext();
+    const [showSettings, setShowSettings] = useState(false);
+    
+    // Default to the first type (usually 'ค่าบรรจุก๊าซ') if new
     const [formData, setFormData] = useState({
-        type: expense?.type || ExpenseType.OTHER,
+        type: expense?.type || (expenseTypes.length > 0 ? expenseTypes[0] : ExpenseType.REFILL),
         custom_type: '',
         description: expense?.description || '',
         payee: expense?.payee || '',
@@ -297,13 +305,38 @@ const ExpenseForm: React.FC<{ expense: Expense | null; onSave: (data: Expense | 
         };
         onSave(submissionData as Expense | Omit<Expense, 'id'>);
     };
+    
+    // Quick access to settings if user wants to add types
+    if (showSettings) {
+        return (
+            <div className="h-[70vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold">จัดการประเภทค่าใช้จ่าย</h3>
+                    <button onClick={() => setShowSettings(false)} className="text-sm text-blue-500">กลับ</button>
+                </div>
+                <div className="p-2 border rounded bg-slate-50 mb-4">
+                    <p className="text-xs text-gray-500 mb-2">ไปที่เมนูตั้งค่าเพื่อจัดการรายการทั้งหมด</p>
+                    <button onClick={() => setActivePage('SETTINGS')} className="w-full bg-orange-100 text-orange-700 py-2 rounded text-sm">ไปที่หน้าตั้งค่า</button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4 h-[70vh] overflow-y-auto pr-2">
-            <select name="type" value={isCustomType ? 'CUSTOM' : formData.type} onChange={(e) => setFormData({...formData, type: e.target.value, custom_type: ''})} className="w-full p-2 border rounded">
-                {Object.values(ExpenseType).map(et => <option key={et} value={et}>{et}</option>)}
-                <option value="CUSTOM">กำหนดเอง...</option>
-            </select>
+            <div className="flex gap-2">
+                <div className="flex-grow">
+                     <select name="type" value={isCustomType ? 'CUSTOM' : formData.type} onChange={(e) => setFormData({...formData, type: e.target.value, custom_type: ''})} className="w-full p-2 border rounded">
+                        {expenseTypes.map(et => <option key={et} value={et}>{et}</option>)}
+                        <option value="CUSTOM">กำหนดเอง...</option>
+                    </select>
+                </div>
+                {/* Shortcut to Settings */}
+                <button type="button" onClick={() => setShowSettings(true)} className="p-2 bg-gray-100 rounded text-gray-500 hover:text-orange-500" title="จัดการประเภท">
+                    <CogIcon />
+                </button>
+            </div>
+           
             {isCustomType && (
                 <input name="custom_type" value={formData.custom_type} onChange={handleChange} placeholder="ระบุประเภทค่าใช้จ่าย" className="w-full p-2 border rounded" required />
             )}

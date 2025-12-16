@@ -5,6 +5,7 @@ import Card from '../components/Card';
 import { supabaseClient } from '../lib/supabaseClient';
 import CheckCircleIcon from '../components/icons/CheckCircleIcon';
 import XCircleIcon from '../components/icons/XCircleIcon';
+import TrashIcon from '../components/icons/TrashIcon';
 import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory, CompanyInfo } from '../types';
 import { formatSupabaseError } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
@@ -20,7 +21,9 @@ interface TestResult {
 }
 
 const Settings: React.FC = () => {
-  const { companyInfo, updateCompanyInfo } = useAppContext();
+  const { companyInfo, updateCompanyInfo, expenseTypes, addExpenseType, removeExpenseType } = useAppContext();
+  const [newExpenseType, setNewExpenseType] = useState('');
+  
   const [testResult, setTestResult] = useState<TestResult>({
     status: 'idle',
     messages: [],
@@ -52,6 +55,14 @@ const Settings: React.FC = () => {
       updateCompanyInfo(formInfo);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
+  };
+
+  const handleAddExpenseType = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (newExpenseType.trim()) {
+          addExpenseType(newExpenseType.trim());
+          setNewExpenseType('');
+      }
   };
 
   const addMessage = (msg: string) => {
@@ -337,6 +348,34 @@ CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL U
                   {isSaved ? 'บันทึกเรียบร้อย' : 'บันทึกข้อมูลร้านค้า'}
               </button>
           </div>
+      </Card>
+
+      <Card className="mb-4">
+          <h2 className="text-lg font-semibold mb-4 text-gray-700">จัดการประเภทค่าใช้จ่าย</h2>
+          <div className="space-y-2 mb-4">
+              {expenseTypes.map((type, index) => (
+                  <div key={index} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
+                      <span className="text-gray-700">{type}</span>
+                      {type !== ExpenseType.REFILL ? (
+                          <button onClick={() => removeExpenseType(type)} className="text-gray-400 hover:text-red-500">
+                              <TrashIcon className="h-4 w-4" />
+                          </button>
+                      ) : <span className="text-xs text-gray-400 italic">ค่าเริ่มต้น</span>}
+                  </div>
+              ))}
+          </div>
+          <form onSubmit={handleAddExpenseType} className="flex gap-2">
+              <input 
+                type="text" 
+                value={newExpenseType} 
+                onChange={(e) => setNewExpenseType(e.target.value)} 
+                placeholder="เพิ่มประเภทใหม่..." 
+                className="flex-grow p-2 border rounded text-sm"
+              />
+              <button type="submit" className="bg-sky-500 text-white px-4 py-2 rounded text-sm hover:bg-sky-600 whitespace-nowrap">
+                  เพิ่ม
+              </button>
+          </form>
       </Card>
 
       <Card>

@@ -1,6 +1,8 @@
 
+
+
 import React from 'react';
-import { Page } from '../App';
+import { Page } from '../types';
 import HomeIcon from './icons/HomeIcon';
 import ReceiptIcon from './icons/ReceiptIcon';
 import UsersIcon from './icons/UsersIcon';
