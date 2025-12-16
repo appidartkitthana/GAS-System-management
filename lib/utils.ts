@@ -1,4 +1,5 @@
 
+
 /**
  * Formats a Date object into a 'YYYY-MM-DD' string suitable for date input fields.
  * This avoids timezone issues that can arise from using .toISOString().
@@ -48,6 +49,13 @@ export const formatSupabaseError = (error: any): string => {
 
   // Normalize the error object (Handle nested error property often returned by some clients)
   const err = error.error || error;
+
+  // Check for specific Schema Cache / Missing Column error
+  if (err.message && typeof err.message === 'string') {
+      if (err.message.includes("Could not find the") && err.message.includes("in the schema cache")) {
+          return 'ฐานข้อมูลไม่เป็นปัจจุบัน (Missing Column) กรุณาไปที่เมนู "ตั้งค่า" > กดปุ่ม "เริ่มการทดสอบระบบ" เพื่อทำการซ่อมแซมฐานข้อมูล';
+      }
+  }
 
   // 1. Check for specific Postgres/Supabase Error Codes
   const code = err.code || '';
