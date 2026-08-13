@@ -4,7 +4,10 @@ import Header from '../components/Header';
 import Card from '../components/Card';
 import { useAppContext } from '../context/AppContext';
 import { formatDateForInput } from '../lib/utils';
-import { PaymentMethod, InventoryCategory } from '../types';
+import { PaymentMethod, InventoryCategory, Customer } from '../types';
+import PrinterIcon from '../components/icons/PrinterIcon';
+import MonthlyReportA4 from '../components/MonthlyReportA4';
+import CustomerStatementA4 from '../components/CustomerStatementA4';
 
 const SummaryCard: React.FC<{ title: string; amount: number; colorClass: string }> = ({ title, amount, colorClass }) => (
     <Card className="flex-1 text-center">
@@ -54,7 +57,10 @@ const FinancialCircleChart: React.FC<{ income: number; expense: number }> = ({ i
     );
 };
 
-const CustomerStatsList: React.FC<{ data: { name: string; branch?: string; tanks: number; profit: number; total: number }[] }> = ({ data }) => {
+const CustomerStatsList: React.FC<{ 
+    data: { name: string; branch?: string; tanks: number; profit: number; total: number }[];
+    onPrintStatement?: (customerName: string) => void;
+}> = ({ data, onPrintStatement }) => {
     return (
         <div className="space-y-0">
              {data.length > 0 ? data.map((item, idx) => (
@@ -63,8 +69,8 @@ const CustomerStatsList: React.FC<{ data: { name: string; branch?: string; tanks
                         <div className="font-semibold text-gray-800 text-sm truncate">{item.name}</div>
                         <div className="text-xs text-gray-400 truncate">{item.branch || 'สำนักงานใหญ่'}</div>
                     </div>
-                    <div className="flex items-center gap-2 sm:gap-6 text-sm">
-                        <div className="text-center w-8" title="จำนวน">
+                    <div className="flex items-center gap-2 sm:gap-4 text-sm">
+                        <div className="text-center w-8" title="จำนวนถัง">
                             <span className="block font-bold text-gray-700">{item.tanks}</span>
                         </div>
                         <div className="text-right w-16 sm:w-20" title="กำไร (ประมาณการ)">
@@ -73,6 +79,15 @@ const CustomerStatsList: React.FC<{ data: { name: string; branch?: string; tanks
                         <div className="text-right w-20 sm:w-24" title="ยอดรวม">
                              <span className="block font-bold text-sky-600">{item.total.toLocaleString()}</span>
                         </div>
+                        {onPrintStatement && (
+                            <button
+                                onClick={() => onPrintStatement(item.name)}
+                                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded border border-emerald-200 transition-colors"
+                                title="พิมพ์ใบสรุปยอดส่งลูกค้ารายนี้"
+                            >
+                                <PrinterIcon className="h-4 w-4" />
+                            </button>
+                        )}
                     </div>
                 </div>
             )) : <p className="text-center text-gray-400 py-4">ไม่มีข้อมูล</p>}
@@ -115,13 +130,32 @@ const DonutChart: React.FC<{ data: { name: string, value: number, color: string 
 };
 
 const Dashboard: React.FC = () => {
-    const { dailySummary, monthlySummary, reportDate, setReportDate, lowStockItems } = useAppContext();
+    const { dailySummary, monthlySummary, reportDate, setReportDate, lowStockItems, customers } = useAppContext();
     const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
     const [gasReturnPrice, setGasReturnPrice] = useState<string>('');
+    const [showMonthlyReportModal, setShowMonthlyReportModal] = useState<boolean>(false);
+    const [statementCustomer, setStatementCustomer] = useState<Customer | null>(null);
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const [year, month, day] = e.target.value.split('-').map(Number);
         setReportDate(new Date(year, month - 1, day));
+    };
+
+    const handlePrintCustomerStatementByName = (name: string) => {
+        const found = customers.find(c => c.name === name);
+        if (found) {
+            setStatementCustomer(found);
+        } else {
+            // Fallback object
+            setStatementCustomer({
+                id: 'temp',
+                name: name,
+                branch: '-',
+                price: 0,
+                tank_brand: undefined as any,
+                tank_size: undefined as any,
+            });
+        }
     };
 
     const summary = viewMode === 'daily' ? dailySummary : monthlySummary;
@@ -265,6 +299,25 @@ const Dashboard: React.FC = () => {
 
         {viewMode === 'monthly' && (
             <>
+                 {/* Monthly Printable Report Banner */}
+                 <div className="bg-gradient-to-r from-sky-600 to-blue-700 text-white p-4 rounded-xl shadow-md flex flex-wrap justify-between items-center gap-3">
+                    <div>
+                        <h3 className="font-bold text-base flex items-center gap-2">
+                            <PrinterIcon className="h-5 w-5" />
+                            พิมพ์รายงานสรุปประจำเดือน (A4)
+                        </h3>
+                        <p className="text-xs text-sky-100 mt-0.5">
+                            สรุปยอดขายส่งลูกค้า ยอดเติมแก๊ส และสรุปรายรับ-รายจ่ายทั้งหมดสำหรับเดือนนี้
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setShowMonthlyReportModal(true)}
+                        className="px-4 py-2 bg-white text-sky-800 font-bold text-xs rounded-lg hover:bg-sky-50 shadow transition-all whitespace-nowrap"
+                    >
+                        เปิดพิมพ์รายงาน A4
+                    </button>
+                 </div>
+
                  <Card>
                     <h2 className="text-lg font-semibold mb-4 text-sky-700 flex justify-between items-center">
                         <span>ยอดขายลูกค้าทั้งหมด (เดือนนี้)</span>
@@ -276,10 +329,11 @@ const Dashboard: React.FC = () => {
                             <div className="w-8 text-center">จำนวน</div>
                             <div className="w-16 sm:w-20 text-right">กำไร</div>
                             <div className="w-20 sm:w-24 text-right">ยอดรวม</div>
+                            <div className="w-6 text-center">พิมพ์</div>
                         </div>
                     </div>
                     <div className="max-h-96 overflow-y-auto pr-1">
-                         <CustomerStatsList data={monthlyCustomerData} />
+                         <CustomerStatsList data={monthlyCustomerData} onPrintStatement={handlePrintCustomerStatementByName} />
                     </div>
                  </Card>
 
@@ -390,6 +444,29 @@ const Dashboard: React.FC = () => {
             </>
         )}
       </div>
+
+      {/* Fullscreen Printable Monthly Report Modal */}
+      {showMonthlyReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex justify-center items-start overflow-y-auto p-2 sm:p-6">
+          <MonthlyReportA4
+            selectedYear={reportDate.getFullYear()}
+            selectedMonth={reportDate.getMonth()}
+            onClose={() => setShowMonthlyReportModal(false)}
+          />
+        </div>
+      )}
+
+      {/* Fullscreen Printable Customer Statement Modal */}
+      {statementCustomer && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex justify-center items-start overflow-y-auto p-2 sm:p-6">
+          <CustomerStatementA4
+            selectedCustomer={statementCustomer}
+            selectedYear={reportDate.getFullYear()}
+            selectedMonth={reportDate.getMonth()}
+            onClose={() => setStatementCustomer(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

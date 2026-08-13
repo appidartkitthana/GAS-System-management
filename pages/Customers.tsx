@@ -8,6 +8,7 @@ import PlusCircleIcon from '../components/icons/PlusCircleIcon';
 import Modal from '../components/Modal';
 import PencilIcon from '../components/icons/PencilIcon';
 import TrashIcon from '../components/icons/TrashIcon';
+import MapPinIcon from '../components/icons/MapPinIcon';
 
 const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Customer | Omit<Customer, 'id'>) => void; onClose: () => void; }> = ({ customer, onSave, onClose }) => {
     const [formData, setFormData] = useState({
@@ -17,6 +18,7 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
         tank_brand: customer?.tank_brand || Brand.PTT,
         tank_size: customer?.tank_size || Size.S48,
         address: customer?.address || '',
+        google_map_url: customer?.google_map_url || '',
         tax_id: customer?.tax_id || '',
         notes: customer?.notes || '',
     });
@@ -27,6 +29,16 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    // Helper to generate search link if no URL is specified
+    const handleSearchMap = () => {
+        const query = `${formData.name} ${formData.branch} ${formData.address}`.trim();
+        if (query) {
+            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+        } else {
+            alert('กรุณากรอกชื่อหรือที่อยู่ก่อนค้นหาแผนที่');
+        }
     };
 
     // --- Borrowed Tanks Logic ---
@@ -54,7 +66,6 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
     const handleRemovePrice = (index: number) => {
         setPriceList(priceList.filter((_, i) => i !== index));
     };
-
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -109,7 +120,6 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
                     {priceList.length === 0 && <p className="text-xs text-gray-400 italic">ใช้ราคามาตรฐาน</p>}
                 </div>
 
-
                 {/* Borrowed Tanks */}
                 <div className="p-3 bg-orange-50 rounded border border-orange-100">
                     <div className="flex justify-between items-center mb-2">
@@ -131,7 +141,33 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
                     {borrowedTanks.length === 0 && <p className="text-xs text-gray-400 italic">ไม่มีรายการยืม</p>}
                 </div>
 
-                <textarea name="address" value={formData.address} onChange={handleChange} placeholder="ที่อยู่ (สำหรับใบกำกับภาษี)" className="w-full p-2 border rounded" rows={2}></textarea>
+                <textarea name="address" value={formData.address} onChange={handleChange} placeholder="ที่อยู่ (สำหรับจัดส่ง / ออกใบกำกับภาษี)" className="w-full p-2 border rounded" rows={2}></textarea>
+                
+                {/* Google Maps Location Input */}
+                <div className="p-3 bg-emerald-50 rounded border border-emerald-200">
+                    <label className="block text-xs font-bold text-emerald-800 mb-1 flex items-center gap-1">
+                        <MapPinIcon className="h-4 w-4 text-emerald-600" />
+                        ลิงก์แผนที่ Google Maps / พิกัด GPS
+                    </label>
+                    <div className="flex gap-2">
+                        <input 
+                            name="google_map_url" 
+                            value={formData.google_map_url} 
+                            onChange={handleChange} 
+                            placeholder="วางลิงก์ Google Maps เช่น https://maps.app.goo.gl/..." 
+                            className="w-full p-2 text-xs border rounded bg-white" 
+                        />
+                        <button 
+                            type="button" 
+                            onClick={handleSearchMap}
+                            className="px-2 py-1 bg-emerald-600 text-white rounded text-xs whitespace-nowrap hover:bg-emerald-700 flex items-center gap-1"
+                            title="ค้นหาที่อยู่ใน Google Maps"
+                        >
+                            ค้นหาแผนที่
+                        </button>
+                    </div>
+                </div>
+
                 <input name="tax_id" value={formData.tax_id} onChange={handleChange} placeholder="เลขประจำตัวผู้เสียภาษี" className="w-full p-2 border rounded" />
                 <textarea name="notes" value={formData.notes} onChange={handleChange} placeholder="หมายเหตุ / Note" className="w-full p-2 border rounded" rows={2}></textarea>
             </div>
@@ -140,8 +176,8 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
                 <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
             </div>
         </form>
-    )
-}
+    );
+};
 
 const Customers: React.FC = () => {
     const { customers, addCustomer, updateCustomer, deleteCustomer } = useAppContext();
@@ -212,6 +248,21 @@ const Customers: React.FC = () => {
                                 ))}
                              </div>
                         )}
+                        {customer.address && <p className="text-xs text-gray-600 mt-1"><span className="font-semibold text-gray-500">ที่อยู่:</span> {customer.address}</p>}
+                        
+                        {/* Map Link Button */}
+                        <div className="pt-1">
+                            <a 
+                                href={customer.google_map_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((customer.name + ' ' + (customer.branch || '') + ' ' + (customer.address || '')).trim())}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                            >
+                                <MapPinIcon className="h-3.5 w-3.5 text-emerald-600" />
+                                <span>ดูแผนที่ร้าน (Google Maps)</span>
+                            </a>
+                        </div>
+
                         {customer.notes && <p className="text-xs text-gray-500 italic mt-1">Note: {customer.notes}</p>}
                     </div>
                 </div>

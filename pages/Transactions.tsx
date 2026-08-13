@@ -14,6 +14,7 @@ import CogIcon from '../components/icons/CogIcon';
 import Modal from '../components/Modal';
 import Invoice from '../components/Invoice';
 import InvoiceA4 from '../components/InvoiceA4';
+import DeliveryNoteA4 from '../components/DeliveryNoteA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
 import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem } from '../types';
 import { formatDateForInput } from '../lib/utils';
@@ -392,6 +393,7 @@ const Transactions: React.FC = () => {
   const [editingItem, setEditingItem] = useState<Sale | Expense | null>(null);
   const [receiptData, setReceiptData] = useState<Sale | Expense | null>(null);
   const [receiptA4Data, setReceiptA4Data] = useState<Sale | null>(null);
+  const [deliveryNoteData, setDeliveryNoteData] = useState<{ sale: Sale; defaultWithPrice: boolean } | null>(null);
 
   const handleOpenFormModal = (item: Sale | Expense | null = null) => {
     setEditingItem(item);
@@ -476,11 +478,29 @@ const Transactions: React.FC = () => {
                             <p className="text-lg font-bold text-green-600 whitespace-nowrap">+{sale.total_amount.toLocaleString('th-TH')} ฿</p>
                         </div>
                     </div>
-                    <div className="bg-slate-50/70 px-4 py-2 flex justify-end space-x-3 items-center border-t border-slate-200/80">
-                        <button onClick={() => handleOpenReceiptA4Modal(sale)} className="text-green-600 hover:text-green-700" title="พิมพ์ A4"><DocumentIcon /></button>
-                        <button onClick={() => handleOpenReceiptModal(sale)} className="text-gray-500 hover:text-sky-500" title="พิมพ์ใบเสร็จย่อ"><PrinterIcon /></button>
-                        <button onClick={() => handleOpenFormModal(sale)} className="text-gray-500 hover:text-sky-500"><PencilIcon /></button>
-                        <button onClick={() => deleteSale(sale.id)} className="text-gray-500 hover:text-red-500"><TrashIcon /></button>
+                    <div className="bg-slate-50/70 px-4 py-2.5 flex flex-wrap justify-end gap-2 items-center border-t border-slate-200/80">
+                        <button 
+                            onClick={() => setDeliveryNoteData({ sale, defaultWithPrice: true })} 
+                            className="px-2.5 py-1 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded flex items-center gap-1" 
+                            title="พิมพ์ใบส่งของ (แบบมีราคา)"
+                        >
+                            <span>ใบส่งของ (มีราคา)</span>
+                        </button>
+
+                        <button 
+                            onClick={() => setDeliveryNoteData({ sale, defaultWithPrice: false })} 
+                            className="px-2.5 py-1 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded flex items-center gap-1" 
+                            title="พิมพ์ใบส่งของ (แบบไม่มีราคา - จำนวนถังอย่างเดียว)"
+                        >
+                            <span>ใบส่งของ (ไม่มีราคา)</span>
+                        </button>
+
+                        <div className="h-4 w-px bg-gray-300 mx-1"></div>
+
+                        <button onClick={() => handleOpenReceiptA4Modal(sale)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="พิมพ์ใบกำกับภาษี/ใบเสร็จ A4"><DocumentIcon /></button>
+                        <button onClick={() => handleOpenReceiptModal(sale)} className="p-1 text-sky-600 hover:bg-sky-50 rounded" title="พิมพ์ใบเสร็จย่อ 80mm"><PrinterIcon /></button>
+                        <button onClick={() => handleOpenFormModal(sale)} className="p-1 text-gray-500 hover:text-sky-500" title="แก้ไข"><PencilIcon /></button>
+                        <button onClick={() => deleteSale(sale.id)} className="p-1 text-gray-400 hover:text-red-500" title="ลบ"><TrashIcon /></button>
                     </div>
                 </Card>
             );
@@ -566,6 +586,18 @@ const Transactions: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-black bg-opacity-70 flex justify-center overflow-auto py-8 print:p-0 print:overflow-visible">
              <button onClick={handleCloseReceiptA4Modal} className="fixed top-4 right-4 text-white text-4xl hover:text-gray-300 z-50 no-print">&times;</button>
              <InvoiceA4 sale={receiptA4Data} customer={customerForReceiptA4} />
+        </div>
+      )}
+
+      {/* A4 Delivery Note Modal - Full Screen Overlay */}
+      {deliveryNoteData && getCustomerById(deliveryNoteData.sale.customer_id) && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-70 flex justify-center overflow-auto py-4 print:p-0 print:overflow-visible">
+             <DeliveryNoteA4 
+                sale={deliveryNoteData.sale} 
+                customer={getCustomerById(deliveryNoteData.sale.customer_id)!} 
+                defaultWithPrice={deliveryNoteData.defaultWithPrice}
+                onClose={() => setDeliveryNoteData(null)}
+             />
         </div>
       )}
     </div>

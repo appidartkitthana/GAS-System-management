@@ -75,6 +75,7 @@ export interface Customer {
   borrowed_tanks?: BorrowedTank[]; 
   price_list?: CustomerPriceItem[]; // New: Specific price list
   address?: string;
+  google_map_url?: string;
   tax_id?: string;
   notes?: string; // New: Notes
 }

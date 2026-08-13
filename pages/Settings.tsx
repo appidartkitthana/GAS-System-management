@@ -88,6 +88,7 @@ const Settings: React.FC = () => {
       const checks = [
           { table: 'customers', column: 'borrowed_tanks', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN borrowed_tanks jsonb;' },
           { table: 'customers', column: 'price_list', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN price_list jsonb;' },
+          { table: 'customers', column: 'google_map_url', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN google_map_url text;' },
           { table: 'customers', column: 'notes', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN notes text;' },
           { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN category text;' },
           { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
