@@ -211,6 +211,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateAccessoryInventoryCount = async (inventoryId: string | undefined, itemName: string | undefined, quantityChange: number) => {
+    let item = inventory.find(i => i.id === inventoryId);
+    if (!item && itemName) {
+      item = inventory.find(i => i.name === itemName || i.name?.trim().toLowerCase() === itemName.trim().toLowerCase());
+    }
+    if (!item) return;
+
+    const newTotalCount = Math.max(0, (item.total || 0) + quantityChange);
+    const { data: updatedItem, error } = await supabaseClient
+      .from('inventory')
+      .update({ total: newTotalCount })
+      .eq('id', item.id)
+      .select()
+      .single();
+
+    if (!error && updatedItem) {
+      setInventory(prev => prev.map(i => i.id === item.id ? updatedItem : i));
+    }
+  };
+
+  const processSaleItemInventory = async (item: SaleItem, quantityChange: number) => {
+    if (item.item_type === 'ACCESSORY' || item.inventory_id) {
+      await updateAccessoryInventoryCount(item.inventory_id, item.item_name, quantityChange);
+    } else {
+      await updateInventoryCount(item.brand, item.size, quantityChange);
+    }
+  };
+
   const syncInventoryLoans = async (oldBorrowed: BorrowedTank[] | null | undefined, newBorrowed: BorrowedTank[] | null | undefined) => {
       const changes: { brand: Brand, size: Size, delta: number }[] = [];
       const oldList = oldBorrowed || [];
@@ -294,7 +322,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else if (newSale) {
             setSales(prev => [newSale, ...prev]);
             if (newSale.items && Array.isArray(newSale.items)) {
-                for (const item of newSale.items) await updateInventoryCount(item.brand, item.size, -item.quantity);
+                for (const item of newSale.items) await processSaleItemInventory(item, -item.quantity);
             } else {
                 await updateInventoryCount(newSale.tank_brand, newSale.tank_size, -newSale.quantity);
             }
@@ -313,11 +341,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (originalSale) {
             // Revert
             if (originalSale.items) {
-                for (const item of originalSale.items) await updateInventoryCount(item.brand, item.size, item.quantity);
+                for (const item of originalSale.items) await processSaleItemInventory(item, item.quantity);
             } else await updateInventoryCount(originalSale.tank_brand, originalSale.tank_size, originalSale.quantity);
             // Apply New
             if (updatedSale.items) {
-                for (const item of updatedSale.items) await updateInventoryCount(item.brand, item.size, -item.quantity);
+                for (const item of updatedSale.items) await processSaleItemInventory(item, -item.quantity);
             } else await updateInventoryCount(updatedSale.tank_brand, updatedSale.tank_size, -updatedSale.quantity);
         }
         setSales(prev => prev.map(s => s.id === data.id ? updatedSale : s));
@@ -331,7 +359,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (error) alert(`Error deleting sale: ${formatSupabaseError(error)}`);
             else {
                 if (saleToDelete.items) {
-                    for (const item of saleToDelete.items) await updateInventoryCount(item.brand, item.size, item.quantity);
+                    for (const item of saleToDelete.items) await processSaleItemInventory(item, item.quantity);
                 } else await updateInventoryCount(saleToDelete.tank_brand, saleToDelete.tank_size, saleToDelete.quantity);
                 setSales(prev => prev.filter(s => s.id !== id));
             }

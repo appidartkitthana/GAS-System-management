@@ -42,7 +42,7 @@ export enum InvoiceType {
   TAX_INVOICE = 'ใบกำกับภาษี',
 }
 
-export type Page = 'DASHBOARD' | 'TRANSACTIONS' | 'CUSTOMERS' | 'INVENTORY' | 'SETTINGS';
+export type Page = 'DASHBOARD' | 'TRANSACTIONS' | 'CUSTOMERS' | 'INVENTORY' | 'REPORTS' | 'SETTINGS';
 
 export interface CompanyInfo {
   name: string;
@@ -87,6 +87,9 @@ export interface SaleItem {
   unit_price: number; // Price per unit for this specific item
   total_price: number; // quantity * unit_price
   cost_price?: number; // Snapshot of cost at time of sale
+  item_type?: 'GAS' | 'ACCESSORY';
+  item_name?: string;
+  inventory_id?: string;
 }
 
 export interface Sale {

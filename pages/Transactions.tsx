@@ -16,19 +16,43 @@ import Invoice from '../components/Invoice';
 import InvoiceA4 from '../components/InvoiceA4';
 import DeliveryNoteA4 from '../components/DeliveryNoteA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
-import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem } from '../types';
+import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem, InventoryCategory } from '../types';
 import { formatDateForInput } from '../lib/utils';
 import Settings from './Settings';
 
 // --- FORMS ---
 
 const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, 'id'>) => void; onClose: () => void; }> = ({ sale, onSave, onClose }) => {
-    const { customers } = useAppContext();
+    const { customers, inventory } = useAppContext();
+    const accessoriesInStock = inventory.filter(i => i.category === InventoryCategory.ACCESSORY);
     
-    const initialItems: SaleItem[] = sale?.items && sale.items.length > 0 
-        ? sale.items 
-        : (sale ? [{ brand: sale.tank_brand, size: sale.tank_size, quantity: sale.quantity, unit_price: sale.unit_price, total_price: sale.total_amount }] 
-               : [{ brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: 0, total_price: 0 }]);
+    // Construct initial items accurately without losing price/quantity on edit
+    const initialItems: SaleItem[] = (() => {
+        if (sale?.items && sale.items.length > 0) {
+            return sale.items.map(item => ({
+                ...item,
+                item_type: item.item_type || 'GAS',
+                total_price: item.total_price || (item.quantity * item.unit_price)
+            }));
+        }
+        if (sale) {
+            const deduction = (sale.gas_return_kg || 0) * (sale.gas_return_price || 0);
+            const grossAmount = sale.total_amount + deduction;
+            const derivedUnitPrice = (sale.quantity > 0) 
+                ? Math.round((grossAmount / sale.quantity) * 100) / 100 
+                : (sale.unit_price || 0);
+
+            return [{
+                brand: sale.tank_brand || Brand.PTT,
+                size: sale.tank_size || Size.S48,
+                quantity: sale.quantity || 1,
+                unit_price: derivedUnitPrice,
+                total_price: derivedUnitPrice * (sale.quantity || 1),
+                item_type: 'GAS'
+            }];
+        }
+        return [{ brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: 0, total_price: 0, item_type: 'GAS' }];
+    })();
 
     const [formData, setFormData] = useState({
         customer_id: sale?.customer_id || (customers.length > 0 ? customers[0].id : ''),
@@ -42,29 +66,26 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
 
     const [items, setItems] = useState<SaleItem[]>(initialItems);
 
-    const updateItemPrice = (index: number, customerId: string, brand: Brand, size: Size) => {
+    const applyCustomerPriceToItem = (index: number, customerId: string, item: SaleItem) => {
         const customer = customers.find(c => c.id === customerId);
-        if (customer) {
-            setItems(prev => {
-                const newItems = [...prev];
-                // Check if customer has specific price
-                let price = customer.price; // Default
-                if (customer.price_list) {
-                    const specificPrice = customer.price_list.find(p => p.brand === brand && p.size === size);
-                    if (specificPrice) price = specificPrice.price;
-                }
-                
-                newItems[index].unit_price = price;
-                newItems[index].total_price = newItems[index].quantity * price;
-                return newItems;
-            });
+        if (!customer) return item;
+        
+        let price = customer.price;
+        if (customer.price_list) {
+            const sp = customer.price_list.find(p => p.brand === item.brand && p.size === item.size);
+            if (sp) price = sp.price;
         }
+        return {
+            ...item,
+            unit_price: price,
+            total_price: item.quantity * price
+        };
     };
 
+    // On NEW sale, apply customer price to initial empty item once
     useEffect(() => {
-        if (formData.customer_id && !sale) {
-             // On new sale, update price for initial empty item
-             updateItemPrice(0, formData.customer_id, items[0].brand, items[0].size);
+        if (formData.customer_id && !sale && items.length === 1 && items[0].unit_price === 0) {
+            setItems(prev => [applyCustomerPriceToItem(0, formData.customer_id, prev[0])]);
         }
     }, [formData.customer_id]);
 
@@ -75,60 +96,99 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             
             // Auto-calc total price for line
             if (field === 'quantity' || field === 'unit_price') {
-                item.total_price = item.quantity * item.unit_price;
+                const qty = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity) || 0;
+                const unitP = typeof item.unit_price === 'number' ? item.unit_price : parseFloat(item.unit_price) || 0;
+                item.total_price = Math.round(qty * unitP * 100) / 100;
             }
             
+            // If Brand or Size Changed on a gas item, pull default price from customer price list if available
+            if ((field === 'brand' || field === 'size') && item.item_type === 'GAS') {
+                const customer = customers.find(c => c.id === formData.customer_id);
+                if (customer) {
+                    let p = customer.price;
+                    if (customer.price_list) {
+                        const sp = customer.price_list.find(x => x.brand === item.brand && x.size === item.size);
+                        if (sp) p = sp.price;
+                    }
+                    item.unit_price = p;
+                    item.total_price = Math.round(item.quantity * p * 100) / 100;
+                }
+            }
+
             newItems[index] = item;
-            
-            // If Brand or Size Changed, try to fetch price again
-            if (field === 'brand' || field === 'size') {
-                 // We need to defer this slightly or just call update logic directly.
-                 // Ideally separate function, but here we can just do it next render cycle or manually invoke
-                 // Simpler: Just rely on user to check price or complex effect.
-                 // Let's do instant update if unit_price wasn't manually touched? Hard to track.
-                 // Force update from customer price list:
-                 const customer = customers.find(c => c.id === formData.customer_id);
-                 if (customer && customer.price_list) {
-                     const p = customer.price_list.find(x => x.brand === item.brand && x.size === item.size);
-                     if (p) {
-                         item.unit_price = p.price;
-                         item.total_price = item.quantity * p.price;
-                     } else {
-                         // Revert to base price if defined, or keep current? 
-                         // Let's default to base price if specific not found
-                         item.unit_price = customer.price;
-                         item.total_price = item.quantity * customer.price;
-                     }
-                 }
+            return newItems;
+        });
+    };
+
+    const handleAccessorySelect = (index: number, accessoryId: string) => {
+        const acc = accessoriesInStock.find(i => i.id === accessoryId);
+        setItems(prev => {
+            const newItems = [...prev];
+            if (acc) {
+                const qty = newItems[index].quantity || 1;
+                const unitP = acc.cost_price ? acc.cost_price * 1.2 : 0; // Default price if not set
+                newItems[index] = {
+                    ...newItems[index],
+                    item_type: 'ACCESSORY',
+                    inventory_id: acc.id,
+                    item_name: acc.name || 'อุปกรณ์',
+                    cost_price: acc.cost_price || 0,
+                    unit_price: unitP,
+                    total_price: Math.round(qty * unitP * 100) / 100
+                };
             }
             return newItems;
         });
     };
 
-    const addItem = () => {
+    const addItem = (type: 'GAS' | 'ACCESSORY' = 'GAS') => {
         const customer = customers.find(c => c.id === formData.customer_id);
-        const newItem = { brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: customer?.price || 0, total_price: customer?.price || 0 };
-        // Check for specific price
-        if (customer && customer.price_list) {
-            const p = customer.price_list.find(x => x.brand === Brand.PTT && x.size === Size.S48);
-            if (p) {
-                newItem.unit_price = p.price;
-                newItem.total_price = p.price;
+        if (type === 'ACCESSORY') {
+            const firstAcc = accessoriesInStock[0];
+            const newItem: SaleItem = {
+                brand: Brand.OTHER,
+                size: Size.OTHER,
+                item_type: 'ACCESSORY',
+                inventory_id: firstAcc?.id,
+                item_name: firstAcc?.name || 'อุปกรณ์',
+                quantity: 1,
+                cost_price: firstAcc?.cost_price || 0,
+                unit_price: (firstAcc?.cost_price || 0) * 1.2,
+                total_price: (firstAcc?.cost_price || 0) * 1.2
+            };
+            setItems([...items, newItem]);
+        } else {
+            let defaultPrice = customer?.price || 0;
+            if (customer && customer.price_list) {
+                const sp = customer.price_list.find(x => x.brand === Brand.PTT && x.size === Size.S48);
+                if (sp) defaultPrice = sp.price;
             }
+            const newItem: SaleItem = {
+                brand: Brand.PTT,
+                size: Size.S48,
+                item_type: 'GAS',
+                quantity: 1,
+                unit_price: defaultPrice,
+                total_price: defaultPrice
+            };
+            setItems([...items, newItem]);
         }
-        setItems([...items, newItem]);
     };
 
     const removeItem = (index: number) => {
+        if (items.length === 1) {
+            alert("ต้องมีอย่างน้อย 1 รายการ");
+            return;
+        }
         setItems(items.filter((_, i) => i !== index));
     };
 
     const calculateGrandTotal = () => {
-        const itemsTotal = items.reduce((acc, item) => acc + item.total_price, 0);
+        const itemsTotal = items.reduce((acc, item) => acc + (item.total_price || 0), 0);
         const returnKg = parseFloat(formData.gas_return_kg) || 0;
         const returnPrice = parseFloat(formData.gas_return_price) || 0;
         const deduction = returnKg * returnPrice;
-        return itemsTotal - deduction;
+        return Math.round((itemsTotal - deduction) * 100) / 100;
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -138,9 +198,14 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const customer = customers.find(c => c.id === formData.customer_id);
-        if (!customer) return;
+        if (!customer) {
+            alert("กรุณาเลือกลูกค้า");
+            return;
+        }
 
         const finalTotal = calculateGrandTotal();
+        const totalQuantity = items.reduce((acc, i) => acc + (i.quantity || 0), 0);
+        const primaryGasItem = items.find(i => i.item_type === 'GAS') || items[0];
 
         const submissionData = {
             ...sale,
@@ -153,92 +218,187 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             gas_return_price: parseFloat(formData.gas_return_price) || undefined,
             items: items,
             // Summary fields
-            quantity: items.reduce((acc, i) => acc + i.quantity, 0),
-            tank_brand: items[0]?.brand || Brand.OTHER,
-            tank_size: items[0]?.size || Size.OTHER,
-            unit_price: 0, 
+            quantity: totalQuantity,
+            tank_brand: primaryGasItem.brand || Brand.OTHER,
+            tank_size: primaryGasItem.size || Size.OTHER,
+            unit_price: primaryGasItem.unit_price || (totalQuantity > 0 ? Math.round((finalTotal / totalQuantity) * 100) / 100 : 0), 
             total_amount: finalTotal,
         };
         onSave(submissionData as Sale | Omit<Sale, 'id'>);
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4 h-[70vh] overflow-y-auto pr-2">
-            <select name="customer_id" value={formData.customer_id} onChange={handleChange} className="w-full p-2 border rounded" required>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.branch}</option>)}
-            </select>
+        <form onSubmit={handleSubmit} className="space-y-4 h-[75vh] overflow-y-auto pr-2 text-xs">
+            <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">ลูกค้า</label>
+                <select name="customer_id" value={formData.customer_id} onChange={handleChange} className="w-full p-2 border rounded text-sm font-semibold" required>
+                    {customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.branch || 'สำนักงานใหญ่'}</option>)}
+                </select>
+            </div>
             
-            <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-slate-600">รายการสินค้า</label>
-                    <button type="button" onClick={addItem} className="text-xs bg-sky-100 text-sky-600 px-2 py-1 rounded">+ เพิ่ม</button>
-                </div>
-                {items.map((item, index) => (
-                    <div key={index} className="flex flex-wrap items-end gap-2 mb-3 pb-3 border-b border-slate-100 last:border-0">
-                        <div className="w-1/3 flex-grow">
-                            <label className="text-[10px] text-gray-400">ยี่ห้อ</label>
-                            <select value={item.brand} onChange={(e) => handleItemChange(index, 'brand', e.target.value)} className="w-full p-1 text-xs border rounded">
-                                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-                        </div>
-                        <div className="w-1/3 flex-grow">
-                            <label className="text-[10px] text-gray-400">ขนาด</label>
-                            <select value={item.size} onChange={(e) => handleItemChange(index, 'size', e.target.value)} className="w-full p-1 text-xs border rounded">
-                                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div className="w-16">
-                            <label className="text-[10px] text-gray-400">จำนวน</label>
-                            <input type="number" value={item.quantity} onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)} className="w-full p-1 text-xs border rounded" />
-                        </div>
-                        <div className="w-20">
-                            <label className="text-[10px] text-gray-400">ราคา/หน่วย</label>
-                            <input type="number" value={item.unit_price} onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)} className="w-full p-1 text-xs border rounded text-right" />
-                        </div>
-                        <div className="w-20">
-                             <label className="text-[10px] text-gray-400">รวม</label>
-                             <div className="text-xs font-bold text-right py-1">{item.total_price.toLocaleString()}</div>
-                        </div>
-                        <button type="button" onClick={() => removeItem(index)} className="text-red-400 hover:text-red-600 pb-1">
-                            <TrashIcon className="h-4 w-4" />
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200">
+                    <label className="text-xs font-bold text-slate-700">รายการสินค้า (แก๊ส & อุปกรณ์)</label>
+                    <div className="flex gap-2">
+                        <button type="button" onClick={() => addItem('GAS')} className="text-xs bg-sky-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-sky-700 shadow-sm">
+                            + เพิ่มแก๊ส
+                        </button>
+                        <button type="button" onClick={() => addItem('ACCESSORY')} className="text-xs bg-amber-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-amber-700 shadow-sm">
+                            + เพิ่มอุปกรณ์
                         </button>
                     </div>
-                ))}
+                </div>
+
+                {items.map((item, index) => {
+                    const isAccessory = item.item_type === 'ACCESSORY';
+                    return (
+                        <div key={index} className="p-2.5 mb-2.5 bg-white rounded border border-slate-200 shadow-sm space-y-2">
+                            {/* Line Item Type Toggle */}
+                            <div className="flex justify-between items-center text-[11px] text-gray-500">
+                                <span className="font-bold text-gray-700">รายการที่ {index + 1}</span>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleItemChange(index, 'item_type', 'GAS')}
+                                        className={`px-2 py-0.5 text-[10px] rounded font-semibold ${!isAccessory ? 'bg-sky-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                                    >
+                                        ก๊าซหุงต้ม
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleItemChange(index, 'item_type', 'ACCESSORY')}
+                                        className={`px-2 py-0.5 text-[10px] rounded font-semibold ${isAccessory ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                                    >
+                                        อุปกรณ์
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-end gap-2">
+                                {!isAccessory ? (
+                                    <>
+                                        <div className="w-28 flex-grow">
+                                            <label className="text-[10px] text-gray-400">ยี่ห้อถัง</label>
+                                            <select value={item.brand} onChange={(e) => handleItemChange(index, 'brand', e.target.value)} className="w-full p-1.5 text-xs border rounded font-semibold">
+                                                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="w-32 flex-grow">
+                                            <label className="text-[10px] text-gray-400">ขนาด</label>
+                                            <select value={item.size} onChange={(e) => handleItemChange(index, 'size', e.target.value)} className="w-full p-1.5 text-xs border rounded font-semibold">
+                                                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex-grow">
+                                        <label className="text-[10px] text-gray-400">เลือกอุปกรณ์จากสต็อก / ระบุชื่อ</label>
+                                        {accessoriesInStock.length > 0 ? (
+                                            <select 
+                                                value={item.inventory_id || ''} 
+                                                onChange={(e) => handleAccessorySelect(index, e.target.value)}
+                                                className="w-full p-1.5 text-xs border rounded font-semibold bg-amber-50"
+                                            >
+                                                <option value="">-- เลือกอุปกรณ์จากระบบสต็อก --</option>
+                                                {accessoriesInStock.map(a => (
+                                                    <option key={a.id} value={a.id}>{a.name} (คงเหลือ: {a.total} ชิ้น)</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input 
+                                                type="text" 
+                                                value={item.item_name || ''} 
+                                                onChange={(e) => handleItemChange(index, 'item_name', e.target.value)}
+                                                placeholder="ชื่ออุปกรณ์ / สินค้า"
+                                                className="w-full p-1.5 text-xs border rounded"
+                                            />
+                                        )}
+                                    </div>
+                                )}
+
+                                <div className="w-16">
+                                    <label className="text-[10px] text-gray-400">จำนวน</label>
+                                    <input 
+                                        type="number" 
+                                        min="1"
+                                        value={item.quantity} 
+                                        onChange={(e) => handleItemChange(index, 'quantity', Math.max(0, parseFloat(e.target.value) || 0))} 
+                                        className="w-full p-1.5 text-xs border rounded font-bold text-center" 
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <label className="text-[10px] text-gray-400">ราคา/หน่วย (บาท)</label>
+                                    <input 
+                                        type="number" 
+                                        step="0.01"
+                                        value={item.unit_price} 
+                                        onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)} 
+                                        className="w-full p-1.5 text-xs border rounded text-right font-semibold" 
+                                    />
+                                </div>
+                                <div className="w-24 text-right">
+                                     <label className="text-[10px] text-gray-400 block">รวมเงิน</label>
+                                     <div className="text-sm font-bold text-sky-700 py-1">{(item.total_price || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+                                </div>
+                                <button type="button" onClick={() => removeItem(index)} className="p-1 text-red-400 hover:text-red-600 mb-1" title="ลบรายการนี้">
+                                    <TrashIcon className="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
 
-            <div className="bg-blue-50 p-3 rounded border border-blue-100 grid grid-cols-2 gap-2">
+            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 grid grid-cols-2 gap-2">
                 <div>
                      <label className="text-xs font-bold text-blue-800">น้ำหนักคืน (กก.)</label>
-                     <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1" />
+                     <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold" />
                 </div>
                 <div>
                      <label className="text-xs font-bold text-blue-800">ส่วนลดคืนเนื้อ (บาท/กก.)</label>
-                     <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1" />
+                     <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold" />
                 </div>
                 {(parseFloat(formData.gas_return_kg) > 0 || parseFloat(formData.gas_return_price) > 0) && (
-                    <div className="col-span-2 text-right text-sm text-blue-700">
-                        มูลค่าส่วนลด: <span className="font-bold">-{( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString()} ฿</span>
+                    <div className="col-span-2 text-right text-xs text-blue-700">
+                        มูลค่าหักส่วนลด: <span className="font-bold">-{( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
                     </div>
                 )}
             </div>
             
-            <div className="flex justify-between items-center bg-green-50 p-3 rounded border border-green-100">
-                <span className="font-bold text-green-800">ยอดรวมสุทธิ:</span>
-                <span className="font-bold text-xl text-green-600">{calculateGrandTotal().toLocaleString('th-TH', {minimumFractionDigits: 2})} ฿</span>
+            <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-lg border border-emerald-200 shadow-sm">
+                <span className="font-bold text-emerald-800 text-sm">ยอดรวมสุทธิ (Grand Total):</span>
+                <span className="font-bold text-2xl text-emerald-700">{calculateGrandTotal().toLocaleString('th-TH', {minimumFractionDigits: 2})} ฿</span>
             </div>
 
-            <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded">
-                {Object.values(PaymentMethod).map(pm => <option key={pm} value={pm}>{pm}</option>)}
-            </select>
-            <select name="invoice_type" value={formData.invoice_type} onChange={handleChange} className="w-full p-2 border rounded">
-                {Object.values(InvoiceType).map(it => <option key={it} value={it}>{it}</option>)}
-            </select>
-            <input name="invoice_number" value={formData.invoice_number} onChange={handleChange} placeholder="เลขที่เอกสาร" className="w-full p-2 border rounded" />
-            <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">วิธีชำระเงิน</label>
+                    <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded">
+                        {Object.values(PaymentMethod).map(pm => <option key={pm} value={pm}>{pm}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">ประเภทเอกสาร</label>
+                    <select name="invoice_type" value={formData.invoice_type} onChange={handleChange} className="w-full p-2 border rounded">
+                        {Object.values(InvoiceType).map(it => <option key={it} value={it}>{it}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">เลขที่เอกสาร / ใบเสร็จ</label>
+                    <input name="invoice_number" value={formData.invoice_number} onChange={handleChange} placeholder="ระบุเลขที่เอกสาร" className="w-full p-2 border rounded" />
+                </div>
+                <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">วันที่ทำรายการ</label>
+                    <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
+                </div>
+            </div>
             
-            <div className="flex justify-end space-x-2 mt-2">
-                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">ยกเลิก</button>
-                <button type="submit" className="px-4 py-2 bg-sky-500 text-white rounded-lg">บันทึก</button>
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg">ยกเลิก</button>
+                <button type="submit" className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg shadow">บันทึกรายการขาย</button>
             </div>
         </form>
     );

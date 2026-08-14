@@ -36,13 +36,16 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
     <div className="bg-gray-200 p-4 min-h-screen flex flex-col items-center overflow-auto">
       <style>{`
         @page {
-          size: A4;
+          size: A4 portrait;
           margin: 0;
         }
         @media print {
           html, body {
-            height: auto;
-            overflow: visible;
+            width: 210mm;
+            height: 297mm;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: white;
           }
           body * {
@@ -56,13 +59,17 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
             left: 0;
             top: 0;
             width: 210mm;
-            height: auto;
-            min-height: 297mm;
-            margin: 0;
-            padding: 10mm 15mm;
+            height: 297mm;
+            max-height: 297mm;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 8mm 12mm !important;
             background: white;
             box-shadow: none;
             border-radius: 0;
+            overflow: hidden !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
           }
           .no-print {
             display: none !important;

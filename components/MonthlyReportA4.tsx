@@ -110,13 +110,16 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
     <div className="bg-gray-200 p-4 min-h-screen flex flex-col items-center overflow-auto">
       <style>{`
         @page {
-          size: A4;
+          size: A4 portrait;
           margin: 0;
         }
         @media print {
           html, body {
+            width: 210mm;
             height: auto;
-            overflow: visible;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: white;
           }
           body * {
@@ -132,8 +135,9 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
             width: 210mm;
             height: auto;
             min-height: 297mm;
-            margin: 0;
-            padding: 10mm 15mm;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 10mm 12mm !important;
             background: white;
             box-shadow: none;
             border-radius: 0;
@@ -305,10 +309,10 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
           {/* Section 3: Expense Categories Breakdown */}
           <div className="mb-5">
             <h3 className="text-xs font-bold text-sky-800 bg-sky-50 border-l-4 border-sky-600 px-2 py-1 mb-2 uppercase">
-              3. สรุปประเภทรายจ่ายทั้งหมดประจำเดือน (Expense Breakdown)
+              3. สรุปประเภทรายจ่ายทั้งหมดประจำเดือน (Expense Summary)
             </h3>
 
-            <table className="w-full border-collapse border border-gray-300 text-[11px]">
+            <table className="w-full border-collapse border border-gray-300 text-[11px] mb-3">
               <thead>
                 <tr className="bg-slate-700 text-white font-semibold">
                   <th className="py-1.5 px-2 text-center border border-slate-800 w-8">#</th>
@@ -347,6 +351,56 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                   <td className="py-2 px-2 text-center">100%</td>
                 </tr>
               </tfoot>
+            </table>
+          </div>
+
+          {/* Section 4: Detailed Gas Refills at Plant */}
+          <div className="mb-5">
+            <h3 className="text-xs font-bold text-sky-800 bg-sky-50 border-l-4 border-sky-600 px-2 py-1 mb-2 uppercase">
+              4. รายละเอียดการเติมแก๊สเข้าโรงบรรจุ (Gas Refill Breakdown)
+            </h3>
+
+            <table className="w-full border-collapse border border-gray-300 text-[11px] mb-3">
+              <thead>
+                <tr className="bg-amber-700 text-white font-semibold">
+                  <th className="py-1.5 px-2 text-center border border-amber-800 w-8">#</th>
+                  <th className="py-1.5 px-2 text-center border border-amber-800 w-20">วันที่เติม</th>
+                  <th className="py-1.5 px-2 text-left border border-amber-800">โรงบรรจุแก๊ส / ผู้รับเงิน</th>
+                  <th className="py-1.5 px-2 text-left border border-amber-800">รายการเติมถัง</th>
+                  <th className="py-1.5 px-2 text-right border border-amber-800 w-24">คืนเนื้อแก๊ส (บาท)</th>
+                  <th className="py-1.5 px-2 text-right border border-amber-800 w-28">ค่าเติมสุทธิ (บาท)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyExpenses.filter(e => e.type === 'ค่าบรรจุก๊าซ' || (e.refill_details && e.refill_details.length > 0)).length > 0 ? (
+                  monthlyExpenses
+                    .filter(e => e.type === 'ค่าบรรจุก๊าซ' || (e.refill_details && e.refill_details.length > 0))
+                    .map((e, idx) => {
+                      const refillDesc = (e.refill_details && e.refill_details.length > 0)
+                        ? e.refill_details.map(item => `${item.brand} ${item.size} (${item.quantity} ถัง)`).join(', ')
+                        : (e.notes || 'ค่าเติมแก๊ส');
+
+                      return (
+                        <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-amber-50/20'}>
+                          <td className="py-1.5 px-2 text-center border border-gray-200 text-gray-500">{idx + 1}</td>
+                          <td className="py-1.5 px-2 text-center border border-gray-200">{new Date(e.date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit' })}</td>
+                          <td className="py-1.5 px-2 font-bold text-gray-800 border border-gray-200">{e.payee || '-'}</td>
+                          <td className="py-1.5 px-2 text-gray-700 border border-gray-200">{refillDesc}</td>
+                          <td className="py-1.5 px-2 text-right text-emerald-700 font-semibold border border-gray-200">
+                            {e.gas_return_amount ? `${e.gas_return_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-bold text-gray-900 border border-gray-200">
+                            {e.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="text-center py-3 text-gray-400">ไม่มีบันทึกการเติมแก๊สเข้าโรงบรรจุในเดือนนี้</td>
+                  </tr>
+                )}
+              </tbody>
             </table>
           </div>
 
