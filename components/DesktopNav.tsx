@@ -1,6 +1,8 @@
 import React from 'react';
 import { Page } from '../types';
-import gasLogo3D from '../src/assets/images/gas_3d_icon_1786670595534.jpg';
+import { useApp } from '../context/AppContext';
+import { normalizeGoogleDriveUrl } from '../lib/utils';
+import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 import receipt3D from '../src/assets/images/receipt_3d_icon_1786670608029.jpg';
 import report3D from '../src/assets/images/report_3d_icon_1786670618205.jpg';
 import customer3D from '../src/assets/images/customer_3d_icon_1786670628282.jpg';
@@ -50,6 +52,7 @@ const NavTab: React.FC<NavTabProps> = ({ label, page, imgSrc, fallbackIcon, acti
 };
 
 const DesktopNav: React.FC<DesktopNavProps> = ({ activePage, setActivePage }) => {
+  const { companyInfo } = useApp();
   const todayStr = new Date().toLocaleDateString('th-TH', {
     weekday: 'short',
     year: 'numeric',
@@ -57,23 +60,37 @@ const DesktopNav: React.FC<DesktopNavProps> = ({ activePage, setActivePage }) =>
     day: 'numeric',
   });
 
+  const rawLogo = companyInfo.logo || 'https://drive.google.com/file/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8/view?usp=sharing';
+  const logoUrl = normalizeGoogleDriveUrl(rawLogo);
+  const storeName = companyInfo.name || 'บริษัท สมเกียรติ เซอร์วิส แก๊ส จำกัด';
+
   return (
-    <header className="hidden lg:block sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-orange-100 shadow-sm">
+    <header className="hidden lg:block sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-orange-100 shadow-sm">
       <div className="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between gap-4">
         {/* Logo & Store Title */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActivePage('DASHBOARD')}>
-          <div className="relative group">
-            <div className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl blur opacity-40 group-hover:opacity-80 transition duration-300"></div>
-            <img
-              src={gasLogo3D}
-              alt="LPG Gas Store"
-              referrerPolicy="no-referrer"
-              className="relative w-10 h-10 object-cover rounded-xl shadow-md border border-white"
-            />
-          </div>
+        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActivePage('DASHBOARD')}>
+          <img
+            src={logoUrl}
+            alt={storeName}
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const target = e.currentTarget;
+              const step = target.dataset.step || '0';
+              if (step === '0') {
+                target.dataset.step = '1';
+                target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+              } else if (step === '1') {
+                target.dataset.step = '2';
+                target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+              } else {
+                target.src = somkiatOfficialLogo;
+              }
+            }}
+            className="h-10 w-auto max-w-[140px] object-contain flex-shrink-0"
+          />
           <div>
-            <h1 className="text-base font-extrabold text-slate-800 tracking-tight leading-tight">
-              LPG Gas Manager
+            <h1 className="text-base font-extrabold text-slate-800 tracking-tight leading-tight group-hover:text-orange-600 transition-colors">
+              {storeName}
             </h1>
             <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider">
               ระบบจัดการร้านก๊าซหุงต้ม
@@ -81,12 +98,13 @@ const DesktopNav: React.FC<DesktopNavProps> = ({ activePage, setActivePage }) =>
           </div>
         </div>
 
+
         {/* Navigation Tabs */}
         <nav className="flex items-center gap-1.5 bg-slate-100/70 p-1.5 rounded-2xl border border-slate-200/60 shadow-inner">
           <NavTab
             label="ภาพรวม"
             page="DASHBOARD"
-            imgSrc={gasLogo3D}
+            imgSrc={somkiatOfficialLogo}
             activePage={activePage}
             onClick={() => setActivePage('DASHBOARD')}
           />

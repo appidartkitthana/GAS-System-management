@@ -6,4 +6,6 @@ export const SELLER_INFO: CompanyInfo = {
   address: '37/1693 หมู่ที่ 4 ตำบลคลองสาม อำเภอคลองหลวง จังหวัดปทุมธานี 12120',
   taxId: '0135566002331 (สำนักงานใหญ่)',
   phone: '084-545-2592',
+  logo: 'https://drive.google.com/file/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8/view?usp=sharing',
 };
+

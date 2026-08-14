@@ -1,8 +1,9 @@
 
 import React from 'react';
 import { Sale, Customer, InvoiceType } from '../types';
-import { thaiBahtText } from '../lib/utils';
+import { thaiBahtText, normalizeGoogleDriveUrl } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
+import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 
 interface InvoiceA4Props {
   sale: Sale;
@@ -30,74 +31,93 @@ const InvoiceA4: React.FC<InvoiceA4Props> = ({ sale, customer }) => {
     window.print();
   };
 
+  const logoUrl = seller.logo ? normalizeGoogleDriveUrl(seller.logo) : somkiatGasLogo;
+
   return (
     <div className="bg-gray-200 p-4 min-h-screen flex flex-col items-center overflow-auto">
-        <style>{`
-          @page {
-            size: A4 portrait;
-            margin: 0;
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+        @media print {
+          html, body {
+             width: 210mm;
+             height: 297mm;
+             overflow: hidden !important;
+             margin: 0 !important;
+             padding: 0 !important;
+             background: white;
           }
-          @media print {
-            html, body {
-               width: 210mm;
-               height: 297mm;
-               overflow: hidden !important;
-               margin: 0 !important;
-               padding: 0 !important;
-               background: white;
-            }
-            body * {
-              visibility: hidden;
-            }
-            #invoice-a4, #invoice-a4 * {
-              visibility: visible;
-            }
-            #invoice-a4 {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 210mm;
-              height: 297mm;
-              max-height: 297mm;
-              box-sizing: border-box !important;
-              margin: 0 !important;
-              padding: 8mm 12mm !important;
-              background: white;
-              box-shadow: none;
-              border-radius: 0;
-              overflow: hidden !important;
-              page-break-after: avoid !important;
-              page-break-inside: avoid !important;
-            }
-            .no-print {
-              display: none !important;
-            }
-            thead { display: table-header-group; }
-            tr { page-break-inside: avoid; }
+          body * {
+            visibility: hidden;
           }
-        `}</style>
-      
-      {/* Print Instructions for User */}
-      <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4 max-w-[210mm] no-print">
-          <p className="font-bold">คำแนะนำการพิมพ์:</p>
-          <ul className="list-disc ml-5 text-sm">
-              <li>ตั้งค่าขนาดกระดาษเป็น <strong>A4</strong></li>
-              <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default (0)</strong></li>
-              <li>Scale: <strong>100%</strong></li>
-          </ul>
-      </div>
+          #invoice-a4, #invoice-a4 * {
+            visibility: visible;
+          }
+          #invoice-a4 {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 210mm;
+            height: 297mm;
+            max-height: 297mm;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 8mm 12mm !important;
+            background: white;
+            box-shadow: none;
+            border-radius: 0;
+            overflow: hidden !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          thead { display: table-header-group; }
+          tr { page-break-inside: avoid; }
+        }
+      `}</style>
+    
+    {/* Print Instructions for User */}
+    <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4 max-w-[210mm] no-print">
+        <p className="font-bold">คำแนะนำการพิมพ์:</p>
+        <ul className="list-disc ml-5 text-sm">
+            <li>ตั้งค่าขนาดกระดาษเป็น <strong>A4</strong></li>
+            <li>ตั้งค่า Margin เป็น <strong>None</strong> หรือ <strong>Default (0)</strong></li>
+            <li>Scale: <strong>100%</strong></li>
+        </ul>
+    </div>
 
-      <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700 flex flex-col">
-        
-        {/* Header Section */}
-        <div className="flex justify-between items-start mb-6 pb-4 border-b-2 border-green-500">
-            {/* Left: Seller Info */}
-            <div className="flex gap-4 w-7/12">
-                {seller.logo && (
-                    <img src={seller.logo} alt="Logo" className="h-20 w-auto object-contain flex-shrink-0" />
-                )}
-                <div className="flex flex-col justify-center">
-                    <h1 className="text-xl font-bold text-gray-800">{seller.name}</h1>
+    <div id="invoice-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm relative font-sans text-sm text-gray-700 flex flex-col">
+      
+      {/* Header Section */}
+      <div className="flex justify-between items-start mb-6 pb-4 border-b-2 border-green-500">
+          {/* Left: Seller Info */}
+          <div className="flex gap-4 w-7/12">
+              <img 
+                src={logoUrl} 
+                alt="Logo" 
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  const step = target.dataset.step || '0';
+                  if (step === '0') {
+                    target.dataset.step = '1';
+                    target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                  } else if (step === '1') {
+                    target.dataset.step = '2';
+                    target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                  } else {
+                    target.src = somkiatOfficialLogo;
+                  }
+                }}
+                className="h-20 w-auto object-contain flex-shrink-0" 
+              />
+              <div className="flex flex-col justify-center">
+                  <h1 className="text-xl font-bold text-gray-800">{seller.name}</h1>
+
                     <p className="text-xs text-gray-600 leading-tight mt-1">{seller.address}</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
                          <p><strong>โทร:</strong> {seller.phone}</p>

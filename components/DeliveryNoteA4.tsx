@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Sale, Customer } from '../types';
-import { thaiBahtText } from '../lib/utils';
+import { thaiBahtText, normalizeGoogleDriveUrl } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
+import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 
 interface DeliveryNoteA4Props {
   sale: Sale;
@@ -138,9 +139,25 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
           <div className="flex justify-between items-start mb-6 pb-4 border-b-2 border-orange-500">
             {/* Left: Seller Info */}
             <div className="flex gap-4 w-7/12">
-              {seller.logo && (
-                <img src={seller.logo} alt="Logo" className="h-20 w-auto object-contain flex-shrink-0" />
-              )}
+              <img 
+                src={seller.logo ? normalizeGoogleDriveUrl(seller.logo) : somkiatOfficialLogo} 
+                alt="Logo" 
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  const step = target.dataset.step || '0';
+                  if (step === '0') {
+                    target.dataset.step = '1';
+                    target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                  } else if (step === '1') {
+                    target.dataset.step = '2';
+                    target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                  } else {
+                    target.src = somkiatOfficialLogo;
+                  }
+                }}
+                className="h-20 w-auto object-contain flex-shrink-0" 
+              />
               <div className="flex flex-col justify-center">
                 <h1 className="text-xl font-bold text-gray-900">{seller.name}</h1>
                 <p className="text-xs text-gray-600 leading-tight mt-1">{seller.address}</p>

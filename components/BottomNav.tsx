@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { Page } from '../types';
-import gasLogo3D from '../src/assets/images/gas_3d_icon_1786670595534.jpg';
+import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 import receipt3D from '../src/assets/images/receipt_3d_icon_1786670608029.jpg';
 import report3D from '../src/assets/images/report_3d_icon_1786670618205.jpg';
 import customer3D from '../src/assets/images/customer_3d_icon_1786670628282.jpg';
@@ -60,7 +60,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ activePage, setActivePage }) => {
       <div className="flex justify-around items-center px-1 py-0.5">
         <Nav3DItem
           label="ภาพรวม"
-          imgSrc={gasLogo3D}
+          imgSrc={somkiatOfficialLogo}
           isActive={activePage === 'DASHBOARD'}
           onClick={() => setActivePage('DASHBOARD')}
         />

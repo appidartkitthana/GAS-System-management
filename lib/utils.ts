@@ -144,3 +144,19 @@ export const thaiBahtText = (amount: number): string => {
 
     return text;
 };
+
+/**
+ * Normalizes a Google Drive URL into a reliable image proxy URL
+ * to avoid CORS / referrer / direct view restrictions on Google Drive images.
+ */
+export const normalizeGoogleDriveUrl = (url: string): string => {
+  if (!url) return '';
+  if (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com') || url.includes('wsrv.nl')) {
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+      const fileId = match[1];
+      return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+    }
+  }
+  return url;
+};

@@ -7,8 +7,9 @@ import CheckCircleIcon from '../components/icons/CheckCircleIcon';
 import XCircleIcon from '../components/icons/XCircleIcon';
 import TrashIcon from '../components/icons/TrashIcon';
 import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory, CompanyInfo } from '../types';
-import { formatSupabaseError } from '../lib/utils';
+import { formatSupabaseError, normalizeGoogleDriveUrl } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
+import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 
 type Status = 'idle' | 'testing' | 'success' | 'error';
 type ErrorType = 'schema' | 'rls' | 'connection' | 'unknown';
@@ -340,10 +341,38 @@ CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL U
                     <input name="taxId" value={formInfo.taxId} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">โลโก้ร้าน (สำหรับใบเสร็จ)</label>
-                    <div className="flex items-center space-x-4">
-                        {formInfo.logo && <img src={formInfo.logo} alt="Logo Preview" className="h-16 w-16 object-contain border rounded" />}
-                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">โลโก้ร้าน (URL หรือ อัปโหลดไฟล์)</label>
+                    <div className="space-y-3">
+                        <div className="flex items-center space-x-4">
+                            {formInfo.logo && (
+                              <img 
+                                src={normalizeGoogleDriveUrl(formInfo.logo)} 
+                                alt="Logo Preview" 
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  if (target.src !== somkiatOfficialLogo) {
+                                    target.src = somkiatOfficialLogo;
+                                  }
+                                }}
+                                className="h-16 w-16 object-contain border rounded p-1 bg-white" 
+                              />
+                            )}
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              onChange={handleLogoUpload} 
+                              className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" 
+                            />
+                        </div>
+                        <input
+                          type="text"
+                          name="logo"
+                          value={formInfo.logo || ''}
+                          onChange={handleInfoChange}
+                          placeholder="หรือใส่ URL โลโก้/ลิงก์ Google Drive"
+                          className="w-full p-2 border rounded text-xs text-gray-600 focus:ring-1 focus:ring-sky-500"
+                        />
                     </div>
                 </div>
                 <button onClick={saveCompanyInfo} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full sm:w-auto">
