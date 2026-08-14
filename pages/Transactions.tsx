@@ -609,7 +609,7 @@ const Transactions: React.FC = () => {
 
 
   const renderSales = () => (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {sales.map((sale: Sale) => {
             const customer = getCustomerById(sale.customer_id);
             const customerDisplay = customer ? `${customer.name} ${customer.branch ? '(' + customer.branch + ')' : ''}` : 'ลูกค้าทั่วไป';
@@ -669,7 +669,7 @@ const Transactions: React.FC = () => {
   );
 
   const renderExpenses = () => (
-     <div className="space-y-3">
+     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {expenses.map((expense: Expense) => (
             <Card key={expense.id} className="!p-0">
                 <div className="p-4">

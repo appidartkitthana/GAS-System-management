@@ -160,7 +160,7 @@ const Inventory: React.FC = () => {
         </Card>
       )}
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredInventory.map((item: InventoryItem) => {
           const isLowStock = item.low_stock_threshold !== undefined && item.low_stock_threshold !== null && item.full <= item.low_stock_threshold;
           return (

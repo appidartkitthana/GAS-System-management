@@ -319,73 +319,77 @@ CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL U
     <div>
       <Header title="ตั้งค่า" />
       
-      <Card className="mb-4">
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">ข้อมูลร้านค้า</h2>
-          <div className="space-y-4">
-              <div>
-                  <label className="block text-sm font-medium text-gray-700">ชื่อร้าน/บริษัท</label>
-                  <input name="name" value={formInfo.name} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
-              </div>
-              <div>
-                  <label className="block text-sm font-medium text-gray-700">ที่อยู่</label>
-                  <textarea name="address" value={formInfo.address} onChange={handleInfoChange} rows={2} className="w-full mt-1 p-2 border rounded" />
-              </div>
-               <div>
-                  <label className="block text-sm font-medium text-gray-700">เบอร์โทรศัพท์</label>
-                  <input name="phone" value={formInfo.phone} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
-              </div>
-              <div>
-                  <label className="block text-sm font-medium text-gray-700">เลขประจำตัวผู้เสียภาษี</label>
-                  <input name="taxId" value={formInfo.taxId} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
-              </div>
-               <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">โลโก้ร้าน (สำหรับใบเสร็จ)</label>
-                  <div className="flex items-center space-x-4">
-                      {formInfo.logo && <img src={formInfo.logo} alt="Logo Preview" className="h-16 w-16 object-contain border rounded" />}
-                      <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" />
-                  </div>
-              </div>
-              <button onClick={saveCompanyInfo} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full sm:w-auto">
-                  {isSaved ? 'บันทึกเรียบร้อย' : 'บันทึกข้อมูลร้านค้า'}
-              </button>
-          </div>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+            <h2 className="text-lg font-semibold mb-4 text-gray-700">ข้อมูลร้านค้า</h2>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">ชื่อร้าน/บริษัท</label>
+                    <input name="name" value={formInfo.name} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">ที่อยู่</label>
+                    <textarea name="address" value={formInfo.address} onChange={handleInfoChange} rows={2} className="w-full mt-1 p-2 border rounded" />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700">เบอร์โทรศัพท์</label>
+                    <input name="phone" value={formInfo.phone} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">เลขประจำตัวผู้เสียภาษี</label>
+                    <input name="taxId" value={formInfo.taxId} onChange={handleInfoChange} className="w-full mt-1 p-2 border rounded" />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">โลโก้ร้าน (สำหรับใบเสร็จ)</label>
+                    <div className="flex items-center space-x-4">
+                        {formInfo.logo && <img src={formInfo.logo} alt="Logo Preview" className="h-16 w-16 object-contain border rounded" />}
+                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" />
+                    </div>
+                </div>
+                <button onClick={saveCompanyInfo} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full sm:w-auto">
+                    {isSaved ? 'บันทึกเรียบร้อย' : 'บันทึกข้อมูลร้านค้า'}
+                </button>
+            </div>
+        </Card>
 
-      <Card className="mb-4">
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">จัดการประเภทค่าใช้จ่าย</h2>
-          <div className="space-y-2 mb-4">
-              {expenseTypes.map((type, index) => (
-                  <div key={index} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
-                      <span className="text-gray-700">{type}</span>
-                      {type !== ExpenseType.REFILL ? (
-                          <button onClick={() => removeExpenseType(type)} className="text-gray-400 hover:text-red-500">
-                              <TrashIcon className="h-4 w-4" />
-                          </button>
-                      ) : <span className="text-xs text-gray-400 italic">ค่าเริ่มต้น</span>}
-                  </div>
-              ))}
-          </div>
-          <form onSubmit={handleAddExpenseType} className="flex gap-2">
-              <input 
-                type="text" 
-                value={newExpenseType} 
-                onChange={(e) => setNewExpenseType(e.target.value)} 
-                placeholder="เพิ่มประเภทใหม่..." 
-                className="flex-grow p-2 border rounded text-sm"
-              />
-              <button type="submit" className="bg-sky-500 text-white px-4 py-2 rounded text-sm hover:bg-sky-600 whitespace-nowrap">
-                  เพิ่ม
-              </button>
-          </form>
-      </Card>
+        <div className="space-y-6">
+          <Card>
+              <h2 className="text-lg font-semibold mb-4 text-gray-700">จัดการประเภทค่าใช้จ่าย</h2>
+              <div className="space-y-2 mb-4">
+                  {expenseTypes.map((type, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
+                          <span className="text-gray-700">{type}</span>
+                          {type !== ExpenseType.REFILL ? (
+                              <button onClick={() => removeExpenseType(type)} className="text-gray-400 hover:text-red-500">
+                                  <TrashIcon className="h-4 w-4" />
+                              </button>
+                          ) : <span className="text-xs text-gray-400 italic">ค่าเริ่มต้น</span>}
+                      </div>
+                  ))}
+              </div>
+              <form onSubmit={handleAddExpenseType} className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={newExpenseType} 
+                    onChange={(e) => setNewExpenseType(e.target.value)} 
+                    placeholder="เพิ่มประเภทใหม่..." 
+                    className="flex-grow p-2 border rounded text-sm"
+                  />
+                  <button type="submit" className="bg-sky-500 text-white px-4 py-2 rounded text-sm hover:bg-sky-600 whitespace-nowrap">
+                      เพิ่ม
+                  </button>
+              </form>
+          </Card>
 
-      <Card>
-        <h2 className="text-lg font-semibold mb-2 text-gray-700">วินิจฉัยระบบฐานข้อมูล</h2>
-        <button onClick={handleTestConnection} disabled={testResult.status === 'testing'} className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 transition-colors">
-          {testResult.status === 'testing' ? 'กำลังทดสอบ...' : 'เริ่มการทดสอบระบบ'}
-        </button>
-        {renderStatus()}
-      </Card>
+          <Card>
+            <h2 className="text-lg font-semibold mb-2 text-gray-700">วินิจฉัยระบบฐานข้อมูล</h2>
+            <button onClick={handleTestConnection} disabled={testResult.status === 'testing'} className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 transition-colors">
+              {testResult.status === 'testing' ? 'กำลังทดสอบ...' : 'เริ่มการทดสอบระบบ'}
+            </button>
+            {renderStatus()}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 };

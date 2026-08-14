@@ -229,7 +229,7 @@ const Customers: React.FC = () => {
         <input type="text" placeholder="ค้นหาลูกค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full p-3 border border-gray-300 rounded-lg bg-white/80 shadow-inner focus:ring-2 focus:ring-orange-400 focus:outline-none" />
       </div>
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredCustomers.length > 0 ? filteredCustomers.map((customer: Customer) => (
             <Card key={customer.id}>
                 <div className="pr-16">

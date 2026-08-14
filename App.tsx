@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import BottomNav from './components/BottomNav';
+import DesktopNav from './components/DesktopNav';
 import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Reports from './pages/Reports';
@@ -41,13 +42,12 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const containerMaxWidth = activePage === 'REPORTS' ? 'max-w-5xl' : 'max-w-lg';
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-100 to-orange-100 text-gray-800">
-      <div className={`container mx-auto ${containerMaxWidth} p-3 sm:p-4 pb-24 transition-all duration-300`}>
+    <div className="min-h-screen bg-gradient-to-br from-sky-100 via-sky-50 to-orange-100 text-gray-800">
+      <DesktopNav activePage={activePage} setActivePage={setActivePage} />
+      <main className="container mx-auto max-w-lg lg:max-w-7xl p-3 sm:p-5 lg:p-8 pb-24 lg:pb-12 transition-all duration-300">
         {renderPage()}
-      </div>
+      </main>
       <BottomNav activePage={activePage} setActivePage={setActivePage} />
     </div>
   );
