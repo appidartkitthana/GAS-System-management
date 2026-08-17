@@ -145,6 +145,56 @@ export const thaiBahtText = (amount: number): string => {
     return text;
 };
 
+export const getGasWeightKg = (size: string | Size): number => {
+  if (!size) return 0;
+  if (size.includes('48')) return 48;
+  if (size.includes('15')) return 15;
+  if (size.includes('7')) return 7;
+  if (size.includes('4')) return 4;
+  const numMatch = size.match(/(\d+(\.\d+)?)/);
+  if (numMatch) return parseFloat(numMatch[1]) || 0;
+  return 0;
+};
+
+export type DocType = 'DN' | 'IVT' | 'SHORT_TAX_INVOICE' | 'CASH';
+
+export const generateRunningNumber = (
+  docType: DocType,
+  dateInput: string | Date,
+  existingSales: { invoice_number?: string; date?: string }[]
+): string => {
+  const d = new Date(dateInput);
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const ym = `${year}${month}`; // e.g. "202608"
+
+  let prefix = '';
+  if (docType === 'DN') {
+    prefix = `DN-${ym}`;
+  } else if (docType === 'IVT') {
+    prefix = `IVT-${ym}`;
+  } else {
+    // Abbreviated tax invoice / Cash bill (YYYYMM0001)
+    prefix = `${ym}`;
+  }
+
+  // Find max suffix for this prefix in existing sales
+  let maxSeq = 0;
+  (existingSales || []).forEach(s => {
+    const inv = s.invoice_number || '';
+    if (inv.startsWith(prefix)) {
+      const suffix = inv.substring(prefix.length);
+      const seq = parseInt(suffix, 10);
+      if (!isNaN(seq) && seq > maxSeq) {
+        maxSeq = seq;
+      }
+    }
+  });
+
+  const nextSeq = (maxSeq + 1).toString().padStart(4, '0');
+  return `${prefix}${nextSeq}`;
+};
+
 /**
  * Normalizes a Google Drive URL into a reliable image proxy URL
  * to avoid CORS / referrer / direct view restrictions on Google Drive images.

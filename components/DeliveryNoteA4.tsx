@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Sale, Customer } from '../types';
-import { thaiBahtText, normalizeGoogleDriveUrl } from '../lib/utils';
+import { thaiBahtText, generateRunningNumber } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
-import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
 
 interface DeliveryNoteA4Props {
   sale: Sale;
@@ -17,7 +16,7 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
   defaultWithPrice = true,
   onClose 
 }) => {
-  const { companyInfo: seller } = useAppContext();
+  const { companyInfo: seller, sales } = useAppContext();
   const [showPrice, setShowPrice] = useState<boolean>(defaultWithPrice);
 
   const items = (sale.items && sale.items.length > 0)
@@ -28,6 +27,11 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
   const subTotal = items.reduce((acc, item) => acc + item.total_price, 0);
   const returnDeduction = (sale.gas_return_kg || 0) * (sale.gas_return_price || 0);
   const finalTotal = subTotal - returnDeduction;
+
+  // Running number for Delivery Note
+  const deliveryNoteNumber = (sale.invoice_number && sale.invoice_number.startsWith('DN-'))
+    ? sale.invoice_number
+    : generateRunningNumber('DN', sale.date, sales);
 
   const handlePrint = () => {
     window.print();
@@ -64,7 +68,7 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
             max-height: 297mm;
             box-sizing: border-box !important;
             margin: 0 !important;
-            padding: 8mm 12mm !important;
+            padding: 10mm 12mm !important;
             background: white;
             box-shadow: none;
             border-radius: 0;
@@ -126,45 +130,24 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H7a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H7a2 2 0 00-2 2v4a2 2 0 002 2h6m-6-4h6" />
             </svg>
-            พิมพ์ใบส่งของ (A4)
+            พิมพ์เอกสาร A4
           </button>
         </div>
       </div>
 
-      {/* Main Delivery Note Paper */}
+      {/* Main Delivery Note Paper (NO LOGO - Requirement 9) */}
       <div id="delivery-note-a4" className="w-[210mm] min-h-[297mm] bg-white p-[10mm] shadow-lg rounded-sm font-sans text-sm text-gray-800 flex flex-col justify-between">
         
         <div>
-          {/* Header */}
+          {/* Header without Logo */}
           <div className="flex justify-between items-start mb-6 pb-4 border-b-2 border-orange-500">
             {/* Left: Seller Info */}
-            <div className="flex gap-4 w-7/12">
-              <img 
-                src={seller.logo ? normalizeGoogleDriveUrl(seller.logo) : somkiatOfficialLogo} 
-                alt="Logo" 
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  const step = target.dataset.step || '0';
-                  if (step === '0') {
-                    target.dataset.step = '1';
-                    target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-                  } else if (step === '1') {
-                    target.dataset.step = '2';
-                    target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-                  } else {
-                    target.src = somkiatOfficialLogo;
-                  }
-                }}
-                className="h-20 w-auto object-contain flex-shrink-0" 
-              />
-              <div className="flex flex-col justify-center">
-                <h1 className="text-xl font-bold text-gray-900">{seller.name}</h1>
-                <p className="text-xs text-gray-600 leading-tight mt-1">{seller.address}</p>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-                  <p><strong>โทร:</strong> {seller.phone}</p>
-                  <p><strong>เลขภาษี:</strong> {seller.taxId}</p>
-                </div>
+            <div className="w-7/12 pr-4">
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{seller.name}</h1>
+              <p className="text-xs text-gray-600 leading-relaxed mt-1">{seller.address}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-700">
+                <p><strong>โทรศัพท์:</strong> {seller.phone}</p>
+                <p><strong>เลขประจำตัวผู้เสียภาษี:</strong> {seller.taxId}</p>
               </div>
             </div>
 
@@ -173,22 +156,22 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
               <h2 className="text-2xl font-bold text-orange-600 tracking-wide uppercase">
                 ใบส่งของ / ใบส่งสินค้า
               </h2>
-              <p className="text-xs text-gray-400 mb-2">DELIVERY NOTE {showPrice ? '(WITH PRICE)' : '(QUANTITY ONLY)'}</p>
+              <p className="text-xs text-gray-500 mb-2">DELIVERY NOTE {showPrice ? '(WITH PRICE)' : '(QUANTITY ONLY)'}</p>
               
               <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-right mt-1 text-xs">
                 <span className="font-bold text-gray-700">เลขที่ใบส่งของ:</span>
-                <span className="font-semibold text-gray-900">{sale.invoice_number || `DN-${sale.id.substring(0, 8)}`}</span>
+                <span className="font-bold text-orange-700">{deliveryNoteNumber}</span>
                 <span className="font-bold text-gray-700">วันที่ส่งสินค้า:</span>
                 <span className="font-medium text-gray-900">{new Date(sale.date).toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>
-                <span className="font-bold text-gray-700">ชำระโดย:</span>
+                <span className="font-bold text-gray-700">วิธีชำระเงิน:</span>
                 <span className="font-medium text-gray-900">{sale.payment_method}</span>
               </div>
             </div>
           </div>
 
           {/* Customer Info Section */}
-          <div className="mb-6 bg-orange-50/60 border border-orange-200 rounded p-4">
-            <h3 className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">ข้อมูลสถานที่ส่งมอบสินค้า / Customer</h3>
+          <div className="mb-6 bg-orange-50/60 border border-orange-200 rounded-lg p-4">
+            <h3 className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">ข้อมูลลูกค้า / สถานที่จัดส่งสินค้า</h3>
             <p className="text-base font-bold text-gray-900 mb-1">{customer.name} {customer.branch ? `(${customer.branch})` : ''}</p>
             <p className="text-xs text-gray-700 mb-1"><strong>สถานที่จัดส่ง:</strong> {customer.address || '-'}</p>
             {customer.tax_id && <p className="text-xs text-gray-600"><strong>เลขประจำตัวผู้เสียภาษี:</strong> {customer.tax_id}</p>}
@@ -202,15 +185,15 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
                 <thead>
                   <tr className="bg-orange-500 text-white text-xs uppercase tracking-wider">
                     <th className="py-2.5 px-2 w-12 text-center border border-orange-600">#</th>
-                    <th className="py-2.5 px-3 text-left border border-orange-600">รายการสินค้า (Description)</th>
+                    <th className="py-2.5 px-3 text-left border border-orange-600">รายการสินค้า</th>
                     <th className="py-2.5 px-2 w-24 text-center border border-orange-600">จำนวน (ถัง)</th>
-                    <th className="py-2.5 px-2 w-28 text-right border border-orange-600">ราคา/ถัง (฿)</th>
-                    <th className="py-2.5 px-3 w-32 text-right border border-orange-600">จำนวนเงิน (฿)</th>
+                    <th className="py-2.5 px-2 w-28 text-right border border-orange-600">ราคา/ถัง (บาท)</th>
+                    <th className="py-2.5 px-3 w-32 text-right border border-orange-600">จำนวนเงิน (บาท)</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm">
                   {items.map((item, idx) => (
-                    <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50">
+                    <tr key={idx} className="border-b border-gray-200">
                       <td className="py-3 px-2 text-center text-gray-500 border-r border-gray-200">{idx + 1}</td>
                       <td className="py-3 px-3 border-r border-gray-200">
                         <span className="font-bold text-gray-900">แก๊ส {item.brand}</span>
@@ -260,21 +243,15 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
           </div>
 
           {/* Delivery & Summary Details Box */}
-          <div className="grid grid-cols-2 gap-4 border-t-2 border-gray-300 pt-4 mb-6">
+          <div className="grid grid-cols-2 gap-4 border-t-2 border-gray-300 pt-4 mb-4">
             <div className="space-y-2 text-xs text-gray-700">
               <div className="p-3 bg-gray-50 rounded border border-gray-200 space-y-1">
                 <p className="font-bold text-gray-800 text-sm">สรุปจำนวนถังส่งมอบ:</p>
                 <p className="text-gray-700">รวมถังแก๊สที่จัดส่งทั้งสิ้น: <strong className="text-orange-600 text-base">{totalTanks} ถัง</strong></p>
                 {sale.gas_return_kg && (
-                  <p className="text-blue-700">ชั่งน้ำหนักคืนเนื้อแก๊ส: <strong>{sale.gas_return_kg} กิโลกรัม</strong></p>
+                  <p className="text-emerald-700">ชั่งน้ำหนักกำไรแก๊ส: <strong>{sale.gas_return_kg} กิโลกรัม</strong></p>
                 )}
               </div>
-
-              {!showPrice && (
-                <p className="text-[11px] text-gray-500 italic mt-2">
-                  * หมายเหตุ: เอกสารนี้สำหรับใช้ในการตรวจรับและจัดส่งสินค้าถังแก๊สประจำวัน (ไม่แสดงยอดเงิน)
-                </p>
-              )}
             </div>
 
             {/* Price Calculations (Only when showPrice is true) */}
@@ -285,8 +262,8 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
                   <span className="font-semibold">{subTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
                 </div>
                 {sale.gas_return_kg && (
-                  <div className="flex justify-between text-blue-700 text-xs">
-                    <span>ส่วนลดหักคืนเนื้อ ({sale.gas_return_kg} กก.):</span>
+                  <div className="flex justify-between text-emerald-700 text-xs">
+                    <span>หักส่วนลดกำไรแก๊ส ({sale.gas_return_kg} กก.):</span>
                     <span>-{returnDeduction.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
                   </div>
                 )}
@@ -305,24 +282,33 @@ const DeliveryNoteA4: React.FC<DeliveryNoteA4Props> = ({
               </div>
             )}
           </div>
+
+          {/* Standard Document Notes - Requirement 7 */}
+          <div className="text-xs text-gray-600 mb-6 bg-gray-50/70 p-2.5 rounded border border-gray-200">
+            <p className="font-bold text-gray-800 mb-1">หมายเหตุ:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+              <li>ใบเสร็จรับเงินฉบับนี้จะสมบูรณ์ต่อเมื่อได้เรียกเก็บเงินจากท่านเป็นที่เรียบร้อยแล้ว</li>
+              <li>ได้รับสินค้าตามรายการข้างต้นเป็นที่ถูกต้องเรียบร้อย</li>
+            </ul>
+          </div>
         </div>
 
         {/* Signatures Footer */}
-        <div className="grid grid-cols-3 gap-6 pt-6 border-t border-gray-300 break-inside-avoid text-center">
+        <div className="grid grid-cols-3 gap-6 pt-4 border-t border-gray-300 break-inside-avoid text-center">
           <div>
-            <div className="border-b border-gray-400 h-16 mb-2"></div>
+            <div className="border-b border-gray-400 h-14 mb-2"></div>
             <p className="text-xs font-bold text-gray-700">ผู้จัดส่ง / Driver</p>
             <p className="text-[10px] text-gray-400 mt-1">วันที่ ..... / ..... / .........</p>
           </div>
 
           <div>
-            <div className="border-b border-gray-400 h-16 mb-2"></div>
+            <div className="border-b border-gray-400 h-14 mb-2"></div>
             <p className="text-xs font-bold text-gray-700">ผู้ตรวจสอบสินค้า / Inspector</p>
             <p className="text-[10px] text-gray-400 mt-1">วันที่ ..... / ..... / .........</p>
           </div>
 
           <div>
-            <div className="border-b border-gray-400 h-16 mb-2"></div>
+            <div className="border-b border-gray-400 h-14 mb-2"></div>
             <p className="text-xs font-bold text-gray-700">ผู้รับสินค้า / Customer Receiver</p>
             <p className="text-[10px] text-gray-400 mt-1">วันที่ ..... / ..... / .........</p>
           </div>

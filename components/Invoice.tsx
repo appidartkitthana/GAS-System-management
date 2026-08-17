@@ -55,28 +55,8 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
           }
         `}</style>
         
-        <header className="flex flex-col items-center text-center pb-4 border-b-2 border-gray-400">
-          <img 
-            src={logoUrl} 
-            alt="Logo" 
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-              const target = e.currentTarget;
-              const step = target.dataset.step || '0';
-              if (step === '0') {
-                target.dataset.step = '1';
-                target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-              } else if (step === '1') {
-                target.dataset.step = '2';
-                target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-              } else {
-                target.src = somkiatOfficialLogo;
-              }
-            }}
-            className="h-16 w-auto mb-2 object-contain" 
-          />
+        <header className="flex flex-col items-center text-center pb-3 border-b-2 border-gray-400">
           <h1 className="font-bold text-lg leading-tight mb-1">{seller.name}</h1>
-
           <p className="whitespace-pre-line text-xs mb-1">{seller.address}</p>
           <div className="flex gap-2 text-xs">
             <p>โทร: {seller.phone}</p>
@@ -126,7 +106,7 @@ const Invoice: React.FC<InvoiceProps> = ({ sale, customer }) => {
               ))}
               {sale.gas_return_kg && (
                  <tr className="border-t border-gray-300">
-                    <td className="py-1 text-blue-800">คืนเนื้อ ({sale.gas_return_kg} กก.)</td>
+                    <td className="py-1 text-emerald-800">ส่วนลดกำไร ({sale.gas_return_kg} กก.)</td>
                     <td className="text-right py-1"></td>
                     <td className="text-right py-1">-{returnDeduction.toLocaleString()}</td>
                  </tr>

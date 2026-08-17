@@ -179,10 +179,76 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
     );
 };
 
+const BorrowedTankQuickModal: React.FC<{
+    customer: Customer;
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (updatedCustomer: Customer) => void;
+}> = ({ customer, isOpen, onClose, onSave }) => {
+    const [borrowedTanks, setBorrowedTanks] = useState<BorrowedTank[]>(customer.borrowed_tanks || []);
+
+    const handleAddBorrowed = () => {
+        setBorrowedTanks([...borrowedTanks, { brand: Brand.PTT, size: Size.S48, quantity: 1 }]);
+    };
+
+    const handleBorrowedChange = (index: number, field: keyof BorrowedTank, value: any) => {
+        const updated = [...borrowedTanks];
+        updated[index] = { ...updated[index], [field]: value };
+        setBorrowedTanks(updated);
+    };
+
+    const handleRemoveBorrowed = (index: number) => {
+        setBorrowedTanks(borrowedTanks.filter((_, i) => i !== index));
+    };
+
+    const handleSave = () => {
+        onSave({
+            ...customer,
+            borrowed_tanks: borrowedTanks
+        });
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`แก้ไขถังยืม - ${customer.name} (${customer.branch || 'สำนักงานใหญ่'})`}>
+            <div className="space-y-4">
+                <div className="p-3 bg-orange-50/80 rounded-lg border border-orange-200">
+                    <div className="flex justify-between items-center mb-3">
+                        <span className="font-bold text-xs text-orange-800">รายการถังที่ยืมอยู่ปัจจุบัน</span>
+                        <button type="button" onClick={handleAddBorrowed} className="px-2.5 py-1 bg-orange-500 text-white text-xs font-semibold rounded hover:bg-orange-600">
+                            + เพิ่มถังยืม
+                        </button>
+                    </div>
+                    {borrowedTanks.map((item, index) => (
+                        <div key={index} className="flex items-center gap-2 mb-2 bg-white p-2 rounded border border-orange-100">
+                            <select value={item.brand} onChange={(e) => handleBorrowedChange(index, 'brand', e.target.value)} className="w-1/3 text-xs p-1.5 border rounded">
+                                {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                            <select value={item.size} onChange={(e) => handleBorrowedChange(index, 'size', e.target.value)} className="w-1/3 text-xs p-1.5 border rounded">
+                                {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <input type="number" min="0" value={item.quantity} onChange={(e) => handleBorrowedChange(index, 'quantity', parseInt(e.target.value) || 0)} className="w-20 text-xs p-1.5 border rounded font-bold text-center" placeholder="จำนวน" />
+                            <button type="button" onClick={() => handleRemoveBorrowed(index)} className="p-1 text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-4 w-4" />
+                            </button>
+                        </div>
+                    ))}
+                    {borrowedTanks.length === 0 && <p className="text-xs text-gray-400 italic text-center py-2">ไม่มีรายการถังยืม</p>}
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-xs font-bold rounded-lg hover:bg-gray-300">ยกเลิก</button>
+                    <button type="button" onClick={handleSave} className="px-4 py-2 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600">บันทึกถังยืม</button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 const Customers: React.FC = () => {
     const { customers, addCustomer, updateCustomer, deleteCustomer } = useAppContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+    const [editingBorrowedCustomer, setEditingBorrowedCustomer] = useState<Customer | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     const handleOpenModal = (customer: Customer | null = null) => {
@@ -240,14 +306,25 @@ const Customers: React.FC = () => {
                         {customer.price_list && customer.price_list.length > 0 && (
                             <p className="text-xs text-purple-600">มีรายการราคาสินค้า {customer.price_list.length} รายการ</p>
                         )}
-                        {customer.borrowed_tanks && customer.borrowed_tanks.length > 0 && (
-                             <div className="bg-orange-50 p-1 rounded mt-1">
-                                <p className="font-semibold text-gray-500 text-xs">ถังยืม ({getTotalBorrowed(customer)}):</p>
-                                {customer.borrowed_tanks.map((b, idx) => (
-                                    <p key={idx} className="text-xs ml-2">- {b.brand} {b.size}: {b.quantity}</p>
-                                ))}
-                             </div>
-                        )}
+                        <div className="bg-orange-50/80 p-2 rounded-lg mt-2 border border-orange-100">
+                            <div className="flex justify-between items-center mb-1">
+                                <p className="font-semibold text-gray-700 text-xs">ถังยืม ({getTotalBorrowed(customer)} ถัง):</p>
+                                <button 
+                                    onClick={() => setEditingBorrowedCustomer(customer)}
+                                    className="text-[11px] bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-medium hover:bg-orange-200 transition-colors"
+                                >
+                                    แก้ไขถังยืม
+                                </button>
+                            </div>
+                            {customer.borrowed_tanks && customer.borrowed_tanks.length > 0 ? (
+                                customer.borrowed_tanks.map((b, idx) => (
+                                    <p key={idx} className="text-xs ml-1 text-gray-600">- {b.brand} {b.size}: <span className="font-bold text-orange-700">{b.quantity}</span></p>
+                                ))
+                            ) : (
+                                <p className="text-xs text-gray-400 italic ml-1">ไม่มีรายการถังยืม</p>
+                            )}
+                        </div>
+
                         {customer.address && <p className="text-xs text-gray-600 mt-1"><span className="font-semibold text-gray-500">ที่อยู่:</span> {customer.address}</p>}
                         
                         {/* Map Link Button */}
@@ -267,15 +344,28 @@ const Customers: React.FC = () => {
                     </div>
                 </div>
                  <div className="absolute top-3 right-3 flex space-x-2">
-                    <button onClick={() => handleOpenModal(customer)} className="text-gray-400 hover:text-sky-500"><PencilIcon /></button>
-                    <button onClick={() => deleteCustomer(customer.id)} className="text-gray-400 hover:text-red-500"><TrashIcon /></button>
+                    <button onClick={() => handleOpenModal(customer)} className="text-gray-400 hover:text-sky-500" title="แก้ไขลูกค้า"><PencilIcon /></button>
+                    <button onClick={() => deleteCustomer(customer.id)} className="text-gray-400 hover:text-red-500" title="ลบลูกค้า"><TrashIcon /></button>
                 </div>
             </Card>
           )) : <Card><p className="text-center text-gray-500">ไม่พบลูกค้า</p></Card>}
       </div>
+
       <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingCustomer ? 'แก้ไขข้อมูลลูกค้า' : 'เพิ่มลูกค้าใหม่'}>
         <CustomerForm customer={editingCustomer} onSave={handleSave} onClose={handleCloseModal} />
       </Modal>
+
+      {editingBorrowedCustomer && (
+        <BorrowedTankQuickModal 
+            customer={editingBorrowedCustomer}
+            isOpen={!!editingBorrowedCustomer}
+            onClose={() => setEditingBorrowedCustomer(null)}
+            onSave={(updated) => {
+                updateCustomer(updated);
+                setEditingBorrowedCustomer(null);
+            }}
+        />
+      )}
     </div>
   );
 };

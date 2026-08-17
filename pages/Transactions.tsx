@@ -17,13 +17,13 @@ import InvoiceA4 from '../components/InvoiceA4';
 import DeliveryNoteA4 from '../components/DeliveryNoteA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
 import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem, InventoryCategory } from '../types';
-import { formatDateForInput } from '../lib/utils';
+import { formatDateForInput, getGasWeightKg, generateRunningNumber } from '../lib/utils';
 import Settings from './Settings';
 
 // --- FORMS ---
 
 const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, 'id'>) => void; onClose: () => void; }> = ({ sale, onSave, onClose }) => {
-    const { customers, inventory } = useAppContext();
+    const { customers, inventory, sales } = useAppContext();
     const accessoriesInStock = inventory.filter(i => i.category === InventoryCategory.ACCESSORY);
     
     // Construct initial items accurately without losing price/quantity on edit
@@ -66,26 +66,81 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
 
     const [items, setItems] = useState<SaleItem[]>(initialItems);
 
-    const applyCustomerPriceToItem = (index: number, customerId: string, item: SaleItem) => {
-        const customer = customers.find(c => c.id === customerId);
-        if (!customer) return item;
-        
-        let price = customer.price;
-        if (customer.price_list) {
-            const sp = customer.price_list.find(p => p.brand === item.brand && p.size === item.size);
-            if (sp) price = sp.price;
+    // Auto-generate invoice number for new sale
+    useEffect(() => {
+        if (!sale) {
+            const docType = formData.invoice_type === InvoiceType.TAX_INVOICE ? 'IVT' : 'SHORT_TAX_INVOICE';
+            const generatedNum = generateRunningNumber(docType, formData.date, sales);
+            setFormData(prev => ({ ...prev, invoice_number: generatedNum }));
         }
-        return {
-            ...item,
-            unit_price: price,
-            total_price: item.quantity * price
-        };
+    }, [formData.invoice_type, formData.date, sale, sales]);
+
+    // Helper: Lookup customer price for a gas item
+    const getCustomerPriceForItem = (customerId: string, brand: Brand, size: Size): { price: number; found: boolean } => {
+        const customer = customers.find(c => c.id === customerId);
+        if (!customer) return { price: 0, found: false };
+
+        if (customer.price_list && customer.price_list.length > 0) {
+            const sp = customer.price_list.find(x => x.brand === brand && x.size === size);
+            if (sp && sp.price > 0) {
+                return { price: sp.price, found: true };
+            }
+        }
+
+        if (customer.price > 0) {
+            return { price: customer.price, found: true };
+        }
+
+        return { price: 0, found: false };
     };
 
-    // On NEW sale, apply customer price to initial empty item once
+    // Auto calculate gas weight (kg) from items
     useEffect(() => {
-        if (formData.customer_id && !sale && items.length === 1 && items[0].unit_price === 0) {
-            setItems(prev => [applyCustomerPriceToItem(0, formData.customer_id, prev[0])]);
+        const totalGasKg = items.reduce((acc, item) => {
+            if (item.item_type === 'GAS') {
+                return acc + (item.quantity * getGasWeightKg(item.size));
+            }
+            return acc;
+        }, 0);
+
+        if (totalGasKg > 0) {
+            setFormData(prev => ({ ...prev, gas_return_kg: totalGasKg.toString() }));
+        }
+    }, [items]);
+
+    // Refresh prices when customer changes!
+    useEffect(() => {
+        if (!formData.customer_id) return;
+        const customer = customers.find(c => c.id === formData.customer_id);
+        if (!customer) return;
+
+        let missingPriceItems: string[] = [];
+
+        setItems(prevItems => {
+            return prevItems.map(item => {
+                if (item.item_type === 'ACCESSORY') return item;
+
+                const { price, found } = getCustomerPriceForItem(formData.customer_id, item.brand, item.size);
+
+                if (!found || price === 0) {
+                    missingPriceItems.push(`${item.brand} ${item.size}`);
+                    return {
+                        ...item,
+                        unit_price: 0,
+                        total_price: 0
+                    };
+                }
+
+                return {
+                    ...item,
+                    unit_price: price,
+                    total_price: Math.round(item.quantity * price * 100) / 100
+                };
+            });
+        });
+
+        if (missingPriceItems.length > 0) {
+            alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${customer.name} (${customer.branch || 'สำนักงานใหญ่'})" ในรายการ ${missingPriceItems.join(', ')}\n\nระบบจะปรับราคาเป็น 0 บาท กรุณากำหนดราคาของลูกค้ารายนี้ในเมนูลูกค้า`);
         }
     }, [formData.customer_id]);
 
@@ -101,17 +156,17 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 item.total_price = Math.round(qty * unitP * 100) / 100;
             }
             
-            // If Brand or Size Changed on a gas item, pull default price from customer price list if available
+            // If Brand or Size Changed on a gas item, pull default price from customer price list
             if ((field === 'brand' || field === 'size') && item.item_type === 'GAS') {
-                const customer = customers.find(c => c.id === formData.customer_id);
-                if (customer) {
-                    let p = customer.price;
-                    if (customer.price_list) {
-                        const sp = customer.price_list.find(x => x.brand === item.brand && x.size === item.size);
-                        if (sp) p = sp.price;
-                    }
-                    item.unit_price = p;
-                    item.total_price = Math.round(item.quantity * p * 100) / 100;
+                const { price, found } = getCustomerPriceForItem(formData.customer_id, item.brand, item.size);
+                if (!found || price === 0) {
+                    const customer = customers.find(c => c.id === formData.customer_id);
+                    alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${customer?.name || ''}" ในรายการ ${item.brand} ${item.size}`);
+                    item.unit_price = 0;
+                    item.total_price = 0;
+                } else {
+                    item.unit_price = price;
+                    item.total_price = Math.round((item.quantity || 1) * price * 100) / 100;
                 }
             }
 
@@ -119,6 +174,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             return newItems;
         });
     };
+
 
     const handleAccessorySelect = (index: number, accessoryId: string) => {
         const acc = accessoriesInStock.find(i => i.id === accessoryId);
@@ -349,20 +405,21 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 })}
             </div>
 
-            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 grid grid-cols-2 gap-2">
+            <div className="bg-emerald-50/80 p-3 rounded-lg border border-emerald-200 grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
-                     <label className="text-xs font-bold text-blue-800">น้ำหนักคืน (กก.)</label>
-                     <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold" />
+                     <label className="text-xs font-bold text-emerald-800">จำนวนแก๊ส (กก.)</label>
+                     <input name="gas_return_kg" type="number" step="0.01" value={formData.gas_return_kg} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold bg-white" />
                 </div>
                 <div>
-                     <label className="text-xs font-bold text-blue-800">ส่วนลดคืนเนื้อ (บาท/กก.)</label>
-                     <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold" />
+                     <label className="text-xs font-bold text-emerald-800">กำไร (บาท/กก.)</label>
+                     <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold bg-white" />
                 </div>
-                {(parseFloat(formData.gas_return_kg) > 0 || parseFloat(formData.gas_return_price) > 0) && (
-                    <div className="col-span-2 text-right text-xs text-blue-700">
-                        มูลค่าหักส่วนลด: <span className="font-bold">-{( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
-                    </div>
-                )}
+                <div>
+                     <label className="text-xs font-bold text-emerald-800">ผลรวม (บาท)</label>
+                     <div className="w-full p-2 border rounded mt-1 font-bold bg-emerald-100 text-emerald-900 text-right">
+                         {( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                     </div>
+                </div>
             </div>
             
             <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-lg border border-emerald-200 shadow-sm">
@@ -544,6 +601,69 @@ const ExpenseForm: React.FC<{ expense: Expense | null; onSave: (data: Expense | 
 };
 
 
+// --- DELIVERY NOTE MENU ---
+
+const DeliveryNoteMenu: React.FC<{
+    onSelect: (defaultWithPrice: boolean) => void;
+}> = ({ onSelect }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const menuRef = React.useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative inline-block text-left" ref={menuRef}>
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="px-2.5 py-1 text-xs font-semibold text-orange-800 bg-orange-100 hover:bg-orange-200 border border-orange-300 rounded flex items-center gap-1 shadow-sm transition-colors"
+                title="พิมพ์ใบส่งของ"
+            >
+                <DocumentIcon className="h-3.5 w-3.5 text-orange-600" />
+                <span>ใบส่งของ</span>
+                <svg className={`h-3 w-3 text-orange-600 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            {isOpen && (
+                <div className="origin-top-right absolute right-0 mt-1 w-44 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20 py-1 divide-y divide-gray-100">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            onSelect(true);
+                            setIsOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-2 font-medium"
+                    >
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                        <span>ใบส่งของ (มีราคา)</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            onSelect(false);
+                            setIsOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-amber-50 hover:text-amber-900 flex items-center gap-2 font-medium"
+                    >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        <span>ใบส่งของ (ไม่มีราคา)</span>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- MAIN COMPONENT ---
 
 const Transactions: React.FC = () => {
@@ -631,7 +751,7 @@ const Transactions: React.FC = () => {
                                 </div>
                                 <div className="flex items-center space-x-2 mt-2">
                                     <span className={`text-xs px-2 py-0.5 rounded-full ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
-                                    {sale.gas_return_kg && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">คืนเนื้อ: {sale.gas_return_kg} กก.</span>}
+                                    {sale.gas_return_kg && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">กำไร: {sale.gas_return_kg} กก.</span>}
                                 </div>
                                 <p className="text-xs text-gray-400 mt-1">{new Date(sale.date).toLocaleDateString('th-TH')} - {sale.invoice_number}</p>
                             </div>
@@ -639,21 +759,9 @@ const Transactions: React.FC = () => {
                         </div>
                     </div>
                     <div className="bg-slate-50/70 px-4 py-2.5 flex flex-wrap justify-end gap-2 items-center border-t border-slate-200/80">
-                        <button 
-                            onClick={() => setDeliveryNoteData({ sale, defaultWithPrice: true })} 
-                            className="px-2.5 py-1 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded flex items-center gap-1" 
-                            title="พิมพ์ใบส่งของ (แบบมีราคา)"
-                        >
-                            <span>ใบส่งของ (มีราคา)</span>
-                        </button>
-
-                        <button 
-                            onClick={() => setDeliveryNoteData({ sale, defaultWithPrice: false })} 
-                            className="px-2.5 py-1 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded flex items-center gap-1" 
-                            title="พิมพ์ใบส่งของ (แบบไม่มีราคา - จำนวนถังอย่างเดียว)"
-                        >
-                            <span>ใบส่งของ (ไม่มีราคา)</span>
-                        </button>
+                        <DeliveryNoteMenu 
+                            onSelect={(defaultWithPrice) => setDeliveryNoteData({ sale, defaultWithPrice })} 
+                        />
 
                         <div className="h-4 w-px bg-gray-300 mx-1"></div>
 

@@ -56,6 +56,30 @@ export interface BorrowedTank {
   brand: Brand;
   size: Size;
   quantity: number;
+  date?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface BorrowedTankAuditLog {
+  timestamp: string;
+  user?: string;
+  action: string;
+  details: string;
+}
+
+export interface BorrowedTankRecord {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  customer_branch: string;
+  date: string;
+  brand: Brand;
+  size: Size;
+  quantity: number;
+  status: 'กำลังยืม' | 'คืนแล้ว' | 'ชำรุด' | 'อื่นๆ' | string;
+  notes?: string;
+  history?: BorrowedTankAuditLog[];
 }
 
 export interface CustomerPriceItem {
