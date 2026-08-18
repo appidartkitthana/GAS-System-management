@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import Header from '../components/Header';
 import Card from '../components/Card';
 import { useAppContext } from '../context/AppContext';
-import { Customer, Brand, Size, BorrowedTank, CustomerPriceItem } from '../types';
+import { Customer, Brand, Size, BorrowedTank, CustomerPriceItem, VatType } from '../types';
 import PlusCircleIcon from '../components/icons/PlusCircleIcon';
 import Modal from '../components/Modal';
 import PencilIcon from '../components/icons/PencilIcon';
@@ -14,9 +14,10 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
     const [formData, setFormData] = useState({
         name: customer?.name || '',
         branch: customer?.branch || '',
-        price: customer?.price.toString() || '',
+        price: customer?.price?.toString() || '',
         tank_brand: customer?.tank_brand || Brand.PTT,
         tank_size: customer?.tank_size || Size.S48,
+        default_vat_type: customer?.default_vat_type || VatType.INCLUDED,
         address: customer?.address || '',
         google_map_url: customer?.google_map_url || '',
         tax_id: customer?.tax_id || '',
@@ -85,18 +86,31 @@ const CustomerForm: React.FC<{ customer: Customer | null; onSave: (customer: Cus
                 <input name="name" value={formData.name} onChange={handleChange} placeholder="ชื่อลูกค้า" className="w-full p-2 border rounded" required />
                 <input name="branch" value={formData.branch} onChange={handleChange} placeholder="สาขา" className="w-full p-2 border rounded" required />
                 
-                {/* Default/Base Price */}
+                {/* Default/Base Price & VAT */}
                 <div className="p-3 bg-slate-50 rounded border border-slate-200">
-                    <label className="block text-xs font-bold text-slate-800 mb-2">ข้อมูลราคาพื้นฐาน & ความชอบ (Default)</label>
+                    <label className="block text-xs font-bold text-slate-800 mb-2">ข้อมูลราคาพื้นฐาน & การคิดภาษี (Default)</label>
                     <div className="flex gap-2 mb-2">
-                        <select name="tank_brand" value={formData.tank_brand} onChange={handleChange} className="w-1/2 p-2 border rounded">
+                        <select name="tank_brand" value={formData.tank_brand} onChange={handleChange} className="w-1/2 p-2 border rounded text-xs font-medium">
                             {Object.values(Brand).map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
-                        <select name="tank_size" value={formData.tank_size} onChange={handleChange} className="w-1/2 p-2 border rounded">
+                        <select name="tank_size" value={formData.tank_size} onChange={handleChange} className="w-1/2 p-2 border rounded text-xs font-medium">
                             {Object.values(Size).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
-                    <input name="price" value={formData.price} onChange={handleChange} placeholder="ราคาขายมาตรฐาน (บาท)" type="number" className="w-full p-2 border rounded" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-[10px] text-gray-500 mb-1">ราคาขายมาตรฐาน (บาท)</label>
+                            <input name="price" value={formData.price} onChange={handleChange} placeholder="ราคาขายมาตรฐาน (บาท)" type="number" className="w-full p-2 border rounded text-xs" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] text-gray-500 mb-1">การคิดภาษี VAT 7%</label>
+                            <select name="default_vat_type" value={formData.default_vat_type} onChange={handleChange} className="w-full p-2 border rounded text-xs font-medium">
+                                <option value={VatType.INCLUDED}>ราคารวม VAT 7% แล้ว</option>
+                                <option value={VatType.EXCLUDED}>ราคาก่อน VAT (บวกเพิ่ม 7%)</option>
+                                <option value={VatType.NO_VAT}>ไม่มี VAT / บิลเงินสด</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Specific Price List */}
@@ -183,9 +197,11 @@ const BorrowedTankQuickModal: React.FC<{
     customer: Customer;
     isOpen: boolean;
     onClose: () => void;
-    onSave: (updatedCustomer: Customer) => void;
+    onSave: (updatedCustomer: Customer, auditLogs?: { brand: Brand; size: Size; oldQty: number; newQty: number; editedBy: string; reason: string }[]) => void;
 }> = ({ customer, isOpen, onClose, onSave }) => {
     const [borrowedTanks, setBorrowedTanks] = useState<BorrowedTank[]>(customer.borrowed_tanks || []);
+    const [editedBy, setEditedBy] = useState<string>('เจ้าหน้าที่');
+    const [reason, setReason] = useState<string>('ปรับปรุงถังยืมลูกค้า');
 
     const handleAddBorrowed = () => {
         setBorrowedTanks([...borrowedTanks, { brand: Brand.PTT, size: Size.S48, quantity: 1 }]);
@@ -202,10 +218,55 @@ const BorrowedTankQuickModal: React.FC<{
     };
 
     const handleSave = () => {
+        // Compute audit logs for changes
+        const oldMap = new Map<string, number>();
+        (customer.borrowed_tanks || []).forEach(b => {
+            oldMap.set(`${b.brand}-${b.size}`, (oldMap.get(`${b.brand}-${b.size}`) || 0) + b.quantity);
+        });
+
+        const newMap = new Map<string, { brand: Brand; size: Size; qty: number }>();
+        borrowedTanks.forEach(b => {
+            const key = `${b.brand}-${b.size}`;
+            const existing = newMap.get(key);
+            newMap.set(key, { brand: b.brand, size: b.size, qty: (existing?.qty || 0) + b.quantity });
+        });
+
+        const logs: { brand: Brand; size: Size; oldQty: number; newQty: number; editedBy: string; reason: string }[] = [];
+
+        // Check new or modified
+        newMap.forEach(({ brand, size, qty }, key) => {
+            const oldQty = oldMap.get(key) || 0;
+            if (oldQty !== qty) {
+                logs.push({
+                    brand,
+                    size,
+                    oldQty,
+                    newQty: qty,
+                    editedBy: editedBy.trim() || 'เจ้าหน้าที่',
+                    reason: reason.trim() || 'ปรับปรุงถังยืมลูกค้า',
+                });
+            }
+        });
+
+        // Check removed
+        oldMap.forEach((oldQty, key) => {
+            if (!newMap.has(key) && oldQty > 0) {
+                const [brandStr, sizeStr] = key.split('-');
+                logs.push({
+                    brand: brandStr as Brand,
+                    size: sizeStr as Size,
+                    oldQty,
+                    newQty: 0,
+                    editedBy: editedBy.trim() || 'เจ้าหน้าที่',
+                    reason: reason.trim() || 'คืนถังยืม / ยกเลิกถังยืม',
+                });
+            }
+        });
+
         onSave({
             ...customer,
             borrowed_tanks: borrowedTanks
-        });
+        }, logs);
         onClose();
     };
 
@@ -235,9 +296,37 @@ const BorrowedTankQuickModal: React.FC<{
                     ))}
                     {borrowedTanks.length === 0 && <p className="text-xs text-gray-400 italic text-center py-2">ไม่มีรายการถังยืม</p>}
                 </div>
+
+                {/* Audit Trail Fields (PART 14) */}
+                <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 text-xs space-y-2">
+                    <span className="font-bold text-amber-900 block text-[11px]">บันทึกประวัติการแก้ไข (Audit Trail)</span>
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-[10px] text-gray-600 font-medium mb-0.5">ผู้แก้ไข:</label>
+                            <input 
+                                type="text" 
+                                value={editedBy} 
+                                onChange={(e) => setEditedBy(e.target.value)} 
+                                placeholder="ผู้แก้ไข" 
+                                className="w-full p-1.5 border border-gray-300 rounded bg-white" 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] text-gray-600 font-medium mb-0.5">เหตุผล / หมายเหตุ:</label>
+                            <input 
+                                type="text" 
+                                value={reason} 
+                                onChange={(e) => setReason(e.target.value)} 
+                                placeholder="เหตุผลการแก้ไข" 
+                                className="w-full p-1.5 border border-gray-300 rounded bg-white" 
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="flex justify-end gap-2 pt-2 border-t">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-xs font-bold rounded-lg hover:bg-gray-300">ยกเลิก</button>
-                    <button type="button" onClick={handleSave} className="px-4 py-2 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600">บันทึกถังยืม</button>
+                    <button type="button" onClick={handleSave} className="px-4 py-2 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600">บันทึกถังยืม & ประวัติ</button>
                 </div>
             </div>
         </Modal>
@@ -245,7 +334,7 @@ const BorrowedTankQuickModal: React.FC<{
 };
 
 const Customers: React.FC = () => {
-    const { customers, addCustomer, updateCustomer, deleteCustomer } = useAppContext();
+    const { customers, addCustomer, updateCustomer, deleteCustomer, addTankLoanLog } = useAppContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
     const [editingBorrowedCustomer, setEditingBorrowedCustomer] = useState<Customer | null>(null);
@@ -295,7 +384,7 @@ const Customers: React.FC = () => {
         <input type="text" placeholder="ค้นหาลูกค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full p-3 border border-gray-300 rounded-lg bg-white/80 shadow-inner focus:ring-2 focus:ring-orange-400 focus:outline-none" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredCustomers.length > 0 ? filteredCustomers.map((customer: Customer) => (
             <Card key={customer.id}>
                 <div className="pr-16">
@@ -360,8 +449,23 @@ const Customers: React.FC = () => {
             customer={editingBorrowedCustomer}
             isOpen={!!editingBorrowedCustomer}
             onClose={() => setEditingBorrowedCustomer(null)}
-            onSave={(updated) => {
+            onSave={(updated, auditLogs) => {
                 updateCustomer(updated);
+                if (auditLogs && auditLogs.length > 0) {
+                    auditLogs.forEach(log => {
+                        addTankLoanLog({
+                            customer_id: updated.id,
+                            customer_name: `${updated.name} (${updated.branch || 'สำนักงานใหญ่'})`,
+                            tank_brand: log.brand,
+                            tank_size: log.size,
+                            old_quantity: log.oldQty,
+                            new_quantity: log.newQty,
+                            diff_quantity: log.newQty - log.oldQty,
+                            edited_by: log.editedBy,
+                            reason: log.reason,
+                        });
+                    });
+                }
                 setEditingBorrowedCustomer(null);
             }}
         />

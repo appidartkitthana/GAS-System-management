@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAppContext } from '../context/AppContext';
-import { thaiBahtText } from '../lib/utils';
+import { thaiBahtText, formatDateForInput } from '../lib/utils';
+import { calculateReportMetrics } from '../lib/reportCalculations';
 import PrinterIcon from './icons/PrinterIcon';
 
 interface MonthlyReportA4Props {
@@ -11,7 +12,7 @@ interface MonthlyReportA4Props {
 
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตลาคม', 'พฤศจิกายน', 'ธันวาคม'
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
 ];
 
 const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
@@ -19,88 +20,49 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
   selectedMonth,
   onClose
 }) => {
-  const { companyInfo, sales, expenses, customers } = useAppContext();
+  const { companyInfo, sales, expenses, customers, inventory } = useAppContext();
 
-  // Filter sales & expenses for the selected month and year
+  // Compute start and end dates for selected month
+  const startDate = formatDateForInput(new Date(selectedYear, selectedMonth, 1));
+  const endDate = formatDateForInput(new Date(selectedYear, selectedMonth + 1, 0));
+
+  // Use the single source of truth report calculations
+  const metrics = calculateReportMetrics(sales, expenses, customers, inventory, startDate, endDate);
+
   const monthlySales = sales.filter(s => {
-    const d = new Date(s.date);
-    return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
+    const d = s.date ? s.date.split('T')[0] : '';
+    return d >= startDate && d <= endDate;
   });
 
   const monthlyExpenses = expenses.filter(e => {
-    const d = new Date(e.date);
-    return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
+    const d = e.date ? e.date.split('T')[0] : '';
+    return d >= startDate && d <= endDate;
   });
 
-  // Calculate Financials
-  const totalIncome = monthlySales.reduce((acc, s) => acc + s.total_amount, 0);
-  const totalCostOfGoods = monthlySales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
-  const totalGasReturnDeduction = monthlySales.reduce((acc, s) => acc + ((s.gas_return_kg || 0) * (s.gas_return_price || 0)), 0);
-  
-  const totalExpenses = monthlyExpenses.reduce((acc, e) => acc + e.amount, 0);
-  const totalGasReturnRefundFromRefill = monthlyExpenses.reduce((acc, e) => acc + (e.gas_return_amount || 0), 0);
-  
-  const netProfit = totalIncome - totalCostOfGoods - totalExpenses + totalGasReturnRefundFromRefill;
+  const totalIncome = metrics.totalSalesAmount;
+  const totalExpenses = metrics.totalExpensesAmount;
+  const netProfit = metrics.netProfit;
 
   // Payment channel breakdowns for income
-  const incomeCash = monthlySales.filter(s => s.payment_method === 'เงินสด').reduce((a, b) => a + b.total_amount, 0);
-  const incomeTransfer = monthlySales.filter(s => s.payment_method === 'เงินโอน').reduce((a, b) => a + b.total_amount, 0);
-  const incomeCredit = monthlySales.filter(s => s.payment_method === 'เครดิต').reduce((a, b) => a + b.total_amount, 0);
+  const incomeCash = metrics.cashIncome;
+  const incomeTransfer = metrics.transferIncome;
+  const incomeCredit = metrics.creditIncome;
 
   // Total cylinders delivered
-  const totalCylindersDelivered = monthlySales.reduce((acc, s) => {
-    if (s.items && s.items.length > 0) {
-      return acc + s.items.reduce((sum, item) => sum + item.quantity, 0);
-    }
-    return acc + s.quantity;
-  }, 0);
+  const totalCylindersDelivered = metrics.totalGasTanksSold;
 
-  // Group sales by Customer
-  const customerMap = new Map<string, {
-    customerName: string;
-    branch: string;
-    salesCount: number;
-    totalAmount: number;
-    totalTanks: number;
-    totalGasReturnKg: number;
-  }>();
+  // Customer summaries
+  const customerSummaries = metrics.customerSummaries.map(c => ({
+    customerName: c.customerName,
+    branch: c.branch,
+    salesCount: c.salesCount,
+    totalAmount: c.totalAmount,
+    totalTanks: c.tanksCount + c.accessoriesCount,
+    totalGasReturnKg: c.gasReturnKg,
+  }));
 
-  monthlySales.forEach(s => {
-    const c = customers.find(cust => cust.id === s.customer_id);
-    const key = s.customer_id;
-    const name = c ? c.name : 'ลูกค้าทั่วไป / หน้าร้าน';
-    const branch = c ? c.branch : '-';
-
-    const tanks = (s.items && s.items.length > 0)
-      ? s.items.reduce((sum, item) => sum + item.quantity, 0)
-      : s.quantity;
-
-    const existing = customerMap.get(key) || {
-      customerName: name,
-      branch: branch,
-      salesCount: 0,
-      totalAmount: 0,
-      totalTanks: 0,
-      totalGasReturnKg: 0,
-    };
-
-    existing.salesCount += 1;
-    existing.totalAmount += s.total_amount;
-    existing.totalTanks += tanks;
-    existing.totalGasReturnKg += (s.gas_return_kg || 0);
-
-    customerMap.set(key, existing);
-  });
-
-  const customerSummaries = Array.from(customerMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
-
-  // Group expenses by Type
-  const expenseTypeMap = new Map<string, number>();
-  monthlyExpenses.forEach(e => {
-    const curr = expenseTypeMap.get(e.type) || 0;
-    expenseTypeMap.set(e.type, curr + e.amount);
-  });
-  const expenseTypeSummaries = Array.from(expenseTypeMap.entries()).sort((a, b) => b[1] - a[1]);
+  // Expense breakdown
+  const expenseTypeSummaries = metrics.expenseTypeSummaries.map(e => [e.type, e.totalAmount] as [string, number]);
 
   const handlePrint = () => {
     window.print();

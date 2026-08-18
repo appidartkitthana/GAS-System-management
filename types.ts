@@ -42,6 +42,12 @@ export enum InvoiceType {
   TAX_INVOICE = 'ใบกำกับภาษี',
 }
 
+export enum VatType {
+  INCLUDED = 'INCLUDED', // ราคารวม VAT 7% แล้ว (ราคารวมภาษีแล้ว ห้ามคิด VAT ซ้ำ)
+  EXCLUDED = 'EXCLUDED', // ราคาก่อน VAT (ราคายังไม่รวม VAT 7% -> บวกเพิ่ม 7%)
+  NO_VAT = 'NO_VAT',     // ไม่มี VAT / ยกเว้นภาษี
+}
+
 export type Page = 'DASHBOARD' | 'TRANSACTIONS' | 'CUSTOMERS' | 'INVENTORY' | 'REPORTS' | 'SETTINGS';
 
 export interface CompanyInfo {
@@ -59,6 +65,22 @@ export interface BorrowedTank {
   date?: string;
   status?: string;
   notes?: string;
+}
+
+export interface TankLoanAuditLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm:ss
+  timestamp: string; // ISO full timestamp
+  customer_id?: string;
+  customer_name: string;
+  tank_brand: Brand;
+  tank_size: Size;
+  old_quantity: number;
+  new_quantity: number;
+  diff_quantity: number;
+  edited_by: string;
+  reason: string;
 }
 
 export interface BorrowedTankAuditLog {
@@ -102,6 +124,7 @@ export interface Customer {
   google_map_url?: string;
   tax_id?: string;
   notes?: string; // New: Notes
+  default_vat_type?: VatType; // Default VAT mode
 }
 
 export interface SaleItem {
@@ -133,6 +156,9 @@ export interface Sale {
   gas_return_kg?: number;
   gas_return_price?: number; // New: Price per KG for return
   items?: SaleItem[]; 
+  vat_type?: VatType; // INCLUDED | EXCLUDED | NO_VAT
+  pre_vat_amount?: number; // มูลค่าก่อน VAT
+  vat_amount?: number; // ภาษีมูลค่าเพิ่ม 7%
 }
 
 export interface RefillItem {

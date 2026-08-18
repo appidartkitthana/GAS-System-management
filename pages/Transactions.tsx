@@ -16,8 +16,8 @@ import Invoice from '../components/Invoice';
 import InvoiceA4 from '../components/InvoiceA4';
 import DeliveryNoteA4 from '../components/DeliveryNoteA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
-import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, RefillItem, SaleItem, InventoryCategory } from '../types';
-import { formatDateForInput, getGasWeightKg, generateRunningNumber } from '../lib/utils';
+import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, VatType, RefillItem, SaleItem, InventoryCategory, Customer } from '../types';
+import { formatDateForInput, getGasWeightKg, generateRunningNumber, getCustomerPriceForItem, calculateVatBreakdown } from '../lib/utils';
 import Settings from './Settings';
 
 // --- FORMS ---
@@ -26,6 +26,9 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
     const { customers, inventory, sales } = useAppContext();
     const accessoriesInStock = inventory.filter(i => i.category === InventoryCategory.ACCESSORY);
     
+    const initialCustomerId = sale?.customer_id || (customers.length > 0 ? customers[0].id : '');
+    const currentCustomer = customers.find(c => c.id === initialCustomerId);
+
     // Construct initial items accurately without losing price/quantity on edit
     const initialItems: SaleItem[] = (() => {
         if (sale?.items && sale.items.length > 0) {
@@ -51,17 +54,36 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 item_type: 'GAS'
             }];
         }
-        return [{ brand: Brand.PTT, size: Size.S48, quantity: 1, unit_price: 0, total_price: 0, item_type: 'GAS' }];
+        
+        // New sale: lookup initial customer's price for default item
+        const brand = currentCustomer?.tank_brand || Brand.PTT;
+        const size = currentCustomer?.tank_size || Size.S48;
+        const lookup = getCustomerPriceForItem(currentCustomer, brand, size);
+        const initUnitPrice = lookup.price;
+
+        return [{
+            brand,
+            size,
+            quantity: 1,
+            unit_price: initUnitPrice,
+            total_price: initUnitPrice,
+            item_type: 'GAS'
+        }];
     })();
 
+    const initialVatType: VatType = sale?.vat_type 
+        || currentCustomer?.default_vat_type 
+        || (sale?.invoice_type === InvoiceType.TAX_INVOICE ? VatType.INCLUDED : VatType.INCLUDED);
+
     const [formData, setFormData] = useState({
-        customer_id: sale?.customer_id || (customers.length > 0 ? customers[0].id : ''),
+        customer_id: initialCustomerId,
         date: sale?.date ? formatDateForInput(new Date(sale.date)) : formatDateForInput(new Date()),
         payment_method: sale?.payment_method || PaymentMethod.CASH,
         invoice_type: sale?.invoice_type || InvoiceType.CASH,
         invoice_number: sale?.invoice_number || '',
         gas_return_kg: sale?.gas_return_kg?.toString() || '',
         gas_return_price: sale?.gas_return_price?.toString() || '',
+        vat_type: initialVatType,
     });
 
     const [items, setItems] = useState<SaleItem[]>(initialItems);
@@ -74,25 +96,6 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             setFormData(prev => ({ ...prev, invoice_number: generatedNum }));
         }
     }, [formData.invoice_type, formData.date, sale, sales]);
-
-    // Helper: Lookup customer price for a gas item
-    const getCustomerPriceForItem = (customerId: string, brand: Brand, size: Size): { price: number; found: boolean } => {
-        const customer = customers.find(c => c.id === customerId);
-        if (!customer) return { price: 0, found: false };
-
-        if (customer.price_list && customer.price_list.length > 0) {
-            const sp = customer.price_list.find(x => x.brand === brand && x.size === size);
-            if (sp && sp.price > 0) {
-                return { price: sp.price, found: true };
-            }
-        }
-
-        if (customer.price > 0) {
-            return { price: customer.price, found: true };
-        }
-
-        return { price: 0, found: false };
-    };
 
     // Auto calculate gas weight (kg) from items
     useEffect(() => {
@@ -108,11 +111,20 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
         }
     }, [items]);
 
-    // Refresh prices when customer changes!
-    useEffect(() => {
-        if (!formData.customer_id) return;
-        const customer = customers.find(c => c.id === formData.customer_id);
-        if (!customer) return;
+    /**
+     * 3.1 Strict Customer Price Recalculation
+     * When customer changes, recalculate ALL gas items immediately using that customer's prices.
+     */
+    const handleCustomerChange = (newCustomerId: string) => {
+        const targetCustomer = customers.find(c => c.id === newCustomerId);
+        
+        setFormData(prev => ({
+            ...prev,
+            customer_id: newCustomerId,
+            vat_type: targetCustomer?.default_vat_type || prev.vat_type
+        }));
+
+        if (!targetCustomer) return;
 
         let missingPriceItems: string[] = [];
 
@@ -120,7 +132,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             return prevItems.map(item => {
                 if (item.item_type === 'ACCESSORY') return item;
 
-                const { price, found } = getCustomerPriceForItem(formData.customer_id, item.brand, item.size);
+                const { price, found } = getCustomerPriceForItem(targetCustomer, item.brand, item.size);
 
                 if (!found || price === 0) {
                     missingPriceItems.push(`${item.brand} ${item.size}`);
@@ -134,17 +146,19 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 return {
                     ...item,
                     unit_price: price,
-                    total_price: Math.round(item.quantity * price * 100) / 100
+                    total_price: Math.round((item.quantity || 1) * price * 100) / 100
                 };
             });
         });
 
         if (missingPriceItems.length > 0) {
-            alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${customer.name} (${customer.branch || 'สำนักงานใหญ่'})" ในรายการ ${missingPriceItems.join(', ')}\n\nระบบจะปรับราคาเป็น 0 บาท กรุณากำหนดราคาของลูกค้ารายนี้ในเมนูลูกค้า`);
+            alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${targetCustomer.name} (${targetCustomer.branch || 'สำนักงานใหญ่'})" ในรายการ ${missingPriceItems.join(', ')}\n\nระบบจะปรับราคาของรายการดังกล่าวเป็น 0 บาท กรุณาระบุราคาหรือตั้งค่าในเมนูลูกค้า`);
         }
-    }, [formData.customer_id]);
+    };
 
     const handleItemChange = (index: number, field: keyof SaleItem, value: any) => {
+        const selectedCustomer = customers.find(c => c.id === formData.customer_id);
+        
         setItems(prev => {
             const newItems = [...prev];
             const item = { ...newItems[index], [field]: value };
@@ -156,12 +170,11 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 item.total_price = Math.round(qty * unitP * 100) / 100;
             }
             
-            // If Brand or Size Changed on a gas item, pull default price from customer price list
+            // If Brand or Size Changed on a gas item, pull price immediately from customer price list
             if ((field === 'brand' || field === 'size') && item.item_type === 'GAS') {
-                const { price, found } = getCustomerPriceForItem(formData.customer_id, item.brand, item.size);
+                const { price, found } = getCustomerPriceForItem(selectedCustomer, item.brand, item.size);
                 if (!found || price === 0) {
-                    const customer = customers.find(c => c.id === formData.customer_id);
-                    alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${customer?.name || ''}" ในรายการ ${item.brand} ${item.size}`);
+                    alert(`คำเตือน: ไม่พบราคาที่ตั้งไว้สำหรับลูกค้า "${selectedCustomer?.name || ''}" ในรายการ ${item.brand} ${item.size}`);
                     item.unit_price = 0;
                     item.total_price = 0;
                 } else {
@@ -175,14 +188,13 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
         });
     };
 
-
     const handleAccessorySelect = (index: number, accessoryId: string) => {
         const acc = accessoriesInStock.find(i => i.id === accessoryId);
         setItems(prev => {
             const newItems = [...prev];
             if (acc) {
                 const qty = newItems[index].quantity || 1;
-                const unitP = acc.cost_price ? acc.cost_price * 1.2 : 0; // Default price if not set
+                const unitP = acc.cost_price ? acc.cost_price * 1.2 : 0;
                 newItems[index] = {
                     ...newItems[index],
                     item_type: 'ACCESSORY',
@@ -198,7 +210,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
     };
 
     const addItem = (type: 'GAS' | 'ACCESSORY' = 'GAS') => {
-        const customer = customers.find(c => c.id === formData.customer_id);
+        const selectedCustomer = customers.find(c => c.id === formData.customer_id);
         if (type === 'ACCESSORY') {
             const firstAcc = accessoriesInStock[0];
             const newItem: SaleItem = {
@@ -214,18 +226,17 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             };
             setItems([...items, newItem]);
         } else {
-            let defaultPrice = customer?.price || 0;
-            if (customer && customer.price_list) {
-                const sp = customer.price_list.find(x => x.brand === Brand.PTT && x.size === Size.S48);
-                if (sp) defaultPrice = sp.price;
-            }
+            const brand = Brand.PTT;
+            const size = Size.S48;
+            const { price } = getCustomerPriceForItem(selectedCustomer, brand, size);
+            
             const newItem: SaleItem = {
-                brand: Brand.PTT,
-                size: Size.S48,
+                brand,
+                size,
                 item_type: 'GAS',
                 quantity: 1,
-                unit_price: defaultPrice,
-                total_price: defaultPrice
+                unit_price: price,
+                total_price: price
             };
             setItems([...items, newItem]);
         }
@@ -239,13 +250,13 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
         setItems(items.filter((_, i) => i !== index));
     };
 
-    const calculateGrandTotal = () => {
-        const itemsTotal = items.reduce((acc, item) => acc + (item.total_price || 0), 0);
-        const returnKg = parseFloat(formData.gas_return_kg) || 0;
-        const returnPrice = parseFloat(formData.gas_return_price) || 0;
-        const deduction = returnKg * returnPrice;
-        return Math.round((itemsTotal - deduction) * 100) / 100;
-    };
+    // Calculate Subtotal and VAT breakdown
+    const itemsTotal = items.reduce((acc, item) => acc + (item.total_price || 0), 0);
+    const returnKg = parseFloat(formData.gas_return_kg) || 0;
+    const returnPrice = parseFloat(formData.gas_return_price) || 0;
+    const returnDeduction = returnKg * returnPrice;
+
+    const vatBreakdown = calculateVatBreakdown(itemsTotal, returnDeduction, formData.vat_type);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -253,17 +264,17 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const customer = customers.find(c => c.id === formData.customer_id);
-        if (!customer) {
+        const selectedCustomer = customers.find(c => c.id === formData.customer_id);
+        if (!selectedCustomer) {
             alert("กรุณาเลือกลูกค้า");
             return;
         }
 
-        const finalTotal = calculateGrandTotal();
+        const finalTotal = vatBreakdown.grandTotal;
         const totalQuantity = items.reduce((acc, i) => acc + (i.quantity || 0), 0);
         const primaryGasItem = items.find(i => i.item_type === 'GAS') || items[0];
 
-        const submissionData = {
+        const submissionData: Partial<Sale> = {
             ...sale,
             customer_id: formData.customer_id,
             date: new Date(formData.date).toISOString(),
@@ -273,6 +284,9 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             gas_return_kg: parseFloat(formData.gas_return_kg) || undefined,
             gas_return_price: parseFloat(formData.gas_return_price) || undefined,
             items: items,
+            vat_type: formData.vat_type,
+            pre_vat_amount: vatBreakdown.preVatAmount,
+            vat_amount: vatBreakdown.vatAmount,
             // Summary fields
             quantity: totalQuantity,
             tank_brand: primaryGasItem.brand || Brand.OTHER,
@@ -285,22 +299,40 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4 h-[75vh] overflow-y-auto pr-2 text-xs">
+            {/* Customer Selector */}
             <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">ลูกค้า</label>
-                <select name="customer_id" value={formData.customer_id} onChange={handleChange} className="w-full p-2 border rounded text-sm font-semibold" required>
-                    {customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.branch || 'สำนักงานใหญ่'}</option>)}
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                    ลูกค้า / สถานที่ส่ง <span className="text-red-500">*</span>
+                    <span className="text-[11px] font-normal text-gray-500 ml-2">(เมื่อเปลี่ยนลูกค้า ระบบจะคำนวณราคาของลูกค้ารายนั้นใหม่อัตโนมัติ)</span>
+                </label>
+                <select 
+                    name="customer_id" 
+                    value={formData.customer_id} 
+                    onChange={(e) => handleCustomerChange(e.target.value)} 
+                    className="w-full p-2.5 border border-sky-300 rounded-lg text-sm font-semibold bg-sky-50/50 focus:bg-white focus:ring-2 focus:ring-sky-500" 
+                    required
+                >
+                    {customers.map(c => (
+                        <option key={c.id} value={c.id}>
+                            {c.name} - {c.branch || 'สำนักงานใหญ่'} {c.price ? `(ราคามาตรฐาน ${c.price} ฿)` : ''}
+                        </option>
+                    ))}
                 </select>
             </div>
             
+            {/* Items Section */}
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200">
-                    <label className="text-xs font-bold text-slate-700">รายการสินค้า (แก๊ส & อุปกรณ์)</label>
+                    <div>
+                        <label className="text-xs font-bold text-slate-800">รายการสินค้า (แก๊ส & อุปกรณ์)</label>
+                        <p className="text-[10px] text-slate-500">เลือกสินค้า ขนาด และจำนวน ระบบจะดึงราคาเฉพาะของลูกค้ารายนี้</p>
+                    </div>
                     <div className="flex gap-2">
-                        <button type="button" onClick={() => addItem('GAS')} className="text-xs bg-sky-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-sky-700 shadow-sm">
-                            + เพิ่มแก๊ส
+                        <button type="button" onClick={() => addItem('GAS')} className="text-xs bg-sky-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-sky-700 shadow-sm flex items-center gap-1">
+                            <span>+ เพิ่มแก๊ส</span>
                         </button>
-                        <button type="button" onClick={() => addItem('ACCESSORY')} className="text-xs bg-amber-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-amber-700 shadow-sm">
-                            + เพิ่มอุปกรณ์
+                        <button type="button" onClick={() => addItem('ACCESSORY')} className="text-xs bg-amber-600 text-white px-2.5 py-1 rounded font-semibold hover:bg-amber-700 shadow-sm flex items-center gap-1">
+                            <span>+ เพิ่มอุปกรณ์</span>
                         </button>
                     </div>
                 </div>
@@ -308,7 +340,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 {items.map((item, index) => {
                     const isAccessory = item.item_type === 'ACCESSORY';
                     return (
-                        <div key={index} className="p-2.5 mb-2.5 bg-white rounded border border-slate-200 shadow-sm space-y-2">
+                        <div key={index} className="p-2.5 mb-2 bg-white rounded border border-slate-200 shadow-sm space-y-2">
                             {/* Line Item Type Toggle */}
                             <div className="flex justify-between items-center text-[11px] text-gray-500">
                                 <span className="font-bold text-gray-700">รายการที่ {index + 1}</span>
@@ -405,6 +437,7 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                 })}
             </div>
 
+            {/* Return Gas Deduction */}
             <div className="bg-emerald-50/80 p-3 rounded-lg border border-emerald-200 grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
                      <label className="text-xs font-bold text-emerald-800">จำนวนแก๊ส (กก.)</label>
@@ -415,28 +448,157 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
                      <input name="gas_return_price" type="number" step="0.01" value={formData.gas_return_price} onChange={handleChange} placeholder="0.00" className="w-full p-2 border rounded mt-1 font-semibold bg-white" />
                 </div>
                 <div>
-                     <label className="text-xs font-bold text-emerald-800">ผลรวม (บาท)</label>
+                     <label className="text-xs font-bold text-emerald-800">หักส่วนลดกำไรคืนแก๊ส</label>
                      <div className="w-full p-2 border rounded mt-1 font-bold bg-emerald-100 text-emerald-900 text-right">
-                         {( (parseFloat(formData.gas_return_kg) || 0) * (parseFloat(formData.gas_return_price) || 0) ).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                         {returnDeduction > 0 ? `-${returnDeduction.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿` : '0.00 ฿'}
                      </div>
                 </div>
             </div>
             
-            <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-lg border border-emerald-200 shadow-sm">
-                <span className="font-bold text-emerald-800 text-sm">ยอดรวมสุทธิ (Grand Total):</span>
-                <span className="font-bold text-2xl text-emerald-700">{calculateGrandTotal().toLocaleString('th-TH', {minimumFractionDigits: 2})} ฿</span>
+            {/* 3.2 VAT Option & Calculation Breakdown */}
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50/40 p-3.5 rounded-lg border border-slate-300 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-200">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span>การคิดภาษีมูลค่าเพิ่ม (VAT 7%)</span>
+                    </label>
+                    <div className="text-[11px] text-slate-500">
+                        {formData.vat_type === VatType.INCLUDED && (
+                            <span className="text-blue-700 font-medium">✓ ราคารวม VAT แล้ว (ไม่คิด VAT ซ้ำ)</span>
+                        )}
+                        {formData.vat_type === VatType.EXCLUDED && (
+                            <span className="text-amber-700 font-medium">+ ราคาก่อน VAT (บวก VAT 7% เพิ่ม)</span>
+                        )}
+                        {formData.vat_type === VatType.NO_VAT && (
+                            <span className="text-slate-600 font-medium">ไม่มีการคิด VAT</span>
+                        )}
+                    </div>
+                </div>
+
+                {/* VAT Type Selection Buttons */}
+                <div className="grid grid-cols-3 gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, vat_type: VatType.INCLUDED }))}
+                        className={`p-2 rounded-lg border text-left transition-all ${
+                            formData.vat_type === VatType.INCLUDED
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                    >
+                        <div className="font-bold text-xs">ราคารวม VAT แล้ว</div>
+                        <div className={`text-[10px] mt-0.5 ${formData.vat_type === VatType.INCLUDED ? 'text-blue-100' : 'text-slate-400'}`}>
+                            รวม VAT 7% ในราคา (ไม่คิดซ้ำ)
+                        </div>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, vat_type: VatType.EXCLUDED }))}
+                        className={`p-2 rounded-lg border text-left transition-all ${
+                            formData.vat_type === VatType.EXCLUDED
+                                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                    >
+                        <div className="font-bold text-xs">ราคาก่อน VAT</div>
+                        <div className={`text-[10px] mt-0.5 ${formData.vat_type === VatType.EXCLUDED ? 'text-amber-100' : 'text-slate-400'}`}>
+                            ยังไม่รวม VAT (บวกเพิ่ม 7%)
+                        </div>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, vat_type: VatType.NO_VAT }))}
+                        className={`p-2 rounded-lg border text-left transition-all ${
+                            formData.vat_type === VatType.NO_VAT
+                                ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                    >
+                        <div className="font-bold text-xs">ไม่มี VAT</div>
+                        <div className={`text-[10px] mt-0.5 ${formData.vat_type === VatType.NO_VAT ? 'text-slate-200' : 'text-slate-400'}`}>
+                            บิลเงินสดทั่วไป / ไม่คิดภาษี
+                        </div>
+                    </button>
+                </div>
+
+                {/* Calculation Summary Table */}
+                <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs space-y-1.5">
+                    {formData.vat_type === VatType.INCLUDED && (
+                        <>
+                            <div className="flex justify-between text-slate-700">
+                                <span>รวมเป็นเงินทั้งสิ้น (รวม VAT):</span>
+                                <span className="font-semibold">{vatBreakdown.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                            {vatBreakdown.deductions > 0 && (
+                                <div className="flex justify-between text-emerald-700">
+                                    <span>หักส่วนลดกำไรเนื้อแก๊ส ({formData.gas_return_kg} กก.):</span>
+                                    <span className="font-semibold">-{vatBreakdown.deductions.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-slate-600 pt-1 border-t border-dashed border-slate-200">
+                                <span>มูลค่าก่อนภาษี (Pre-VAT 7%):</span>
+                                <span className="font-semibold">{vatBreakdown.preVatAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                            <div className="flex justify-between text-slate-600">
+                                <span>ภาษีมูลค่าเพิ่ม 7% (VAT):</span>
+                                <span className="font-semibold">{vatBreakdown.vatAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                        </>
+                    )}
+
+                    {formData.vat_type === VatType.EXCLUDED && (
+                        <>
+                            <div className="flex justify-between text-slate-700">
+                                <span>รวมเป็นเงินก่อนภาษี (Pre-VAT):</span>
+                                <span className="font-semibold">{vatBreakdown.preVatAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                            {vatBreakdown.deductions > 0 && (
+                                <div className="flex justify-between text-emerald-700">
+                                    <span>หักส่วนลดกำไรเนื้อแก๊ส ({formData.gas_return_kg} กก.):</span>
+                                    <span className="font-semibold">-{vatBreakdown.deductions.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-slate-600 pt-1 border-t border-dashed border-slate-200">
+                                <span>ภาษีมูลค่าเพิ่ม 7% (VAT 7%):</span>
+                                <span className="font-semibold">{vatBreakdown.vatAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                        </>
+                    )}
+
+                    {formData.vat_type === VatType.NO_VAT && (
+                        <>
+                            <div className="flex justify-between text-slate-700">
+                                <span>รวมเป็นเงิน (Subtotal):</span>
+                                <span className="font-semibold">{vatBreakdown.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            </div>
+                            {vatBreakdown.deductions > 0 && (
+                                <div className="flex justify-between text-emerald-700">
+                                    <span>หักส่วนลดกำไรเนื้อแก๊ส ({formData.gas_return_kg} กก.):</span>
+                                    <span className="font-semibold">-{vatBreakdown.deductions.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    <div className="flex justify-between items-center pt-2 border-t-2 border-emerald-500 font-bold text-emerald-800 text-sm">
+                        <span>ยอดรวมสุทธิ (Grand Total):</span>
+                        <span className="text-xl text-emerald-700">{vatBreakdown.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                    </div>
+                </div>
             </div>
 
+            {/* Payment & Invoice Type */}
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="block text-[10px] text-gray-500 mb-1">วิธีชำระเงิน</label>
-                    <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded">
+                    <select name="payment_method" value={formData.payment_method} onChange={handleChange} className="w-full p-2 border rounded font-semibold">
                         {Object.values(PaymentMethod).map(pm => <option key={pm} value={pm}>{pm}</option>)}
                     </select>
                 </div>
                 <div>
                     <label className="block text-[10px] text-gray-500 mb-1">ประเภทเอกสาร</label>
-                    <select name="invoice_type" value={formData.invoice_type} onChange={handleChange} className="w-full p-2 border rounded">
+                    <select name="invoice_type" value={formData.invoice_type} onChange={handleChange} className="w-full p-2 border rounded font-semibold">
                         {Object.values(InvoiceType).map(it => <option key={it} value={it}>{it}</option>)}
                     </select>
                 </div>
@@ -445,16 +607,16 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="block text-[10px] text-gray-500 mb-1">เลขที่เอกสาร / ใบเสร็จ</label>
-                    <input name="invoice_number" value={formData.invoice_number} onChange={handleChange} placeholder="ระบุเลขที่เอกสาร" className="w-full p-2 border rounded" />
+                    <input name="invoice_number" value={formData.invoice_number} onChange={handleChange} placeholder="ระบุเลขที่เอกสาร" className="w-full p-2 border rounded font-semibold" />
                 </div>
                 <div>
                     <label className="block text-[10px] text-gray-500 mb-1">วันที่ทำรายการ</label>
-                    <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
+                    <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded font-semibold" required />
                 </div>
             </div>
             
             <div className="flex justify-end space-x-2 pt-2 border-t">
-                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg">ยกเลิก</button>
+                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300">ยกเลิก</button>
                 <button type="submit" className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg shadow">บันทึกรายการขาย</button>
             </div>
         </form>
@@ -635,28 +797,28 @@ const DeliveryNoteMenu: React.FC<{
             </button>
 
             {isOpen && (
-                <div className="origin-top-right absolute right-0 mt-1 w-44 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20 py-1 divide-y divide-gray-100">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            onSelect(true);
-                            setIsOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-2 font-medium"
-                    >
-                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                        <span>ใบส่งของ (มีราคา)</span>
-                    </button>
+                <div className="origin-top-right absolute right-0 mt-1 w-52 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20 py-1 divide-y divide-gray-100">
                     <button
                         type="button"
                         onClick={() => {
                             onSelect(false);
                             setIsOpen(false);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-amber-50 hover:text-amber-900 flex items-center gap-2 font-medium"
+                        className="w-full text-left px-3 py-2 text-xs text-gray-800 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-2 font-semibold"
                     >
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                        <span>ใบส่งของ (ไม่มีราคา)</span>
+                        <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                        <span>ใบส่งของ (ไม่มีราคา - มาตรฐาน)</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            onSelect(true);
+                            setIsOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 font-medium"
+                    >
+                        <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                        <span>ใบส่งของ (แสดงราคา)</span>
                     </button>
                 </div>
             )}
@@ -729,7 +891,7 @@ const Transactions: React.FC = () => {
 
 
   const renderSales = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         {sales.map((sale: Sale) => {
             const customer = getCustomerById(sale.customer_id);
             const customerDisplay = customer ? `${customer.name} ${customer.branch ? '(' + customer.branch + ')' : ''}` : 'ลูกค้าทั่วไป';
@@ -749,13 +911,22 @@ const Transactions: React.FC = () => {
                                         <div>{sale.quantity} x {sale.tank_brand} {sale.tank_size}</div>
                                     )}
                                 </div>
-                                <div className="flex items-center space-x-2 mt-2">
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
-                                    {sale.gas_return_kg && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">กำไร: {sale.gas_return_kg} กก.</span>}
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
+                                    {sale.vat_type === VatType.INCLUDED && (
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">รวม VAT</span>
+                                    )}
+                                    {sale.vat_type === VatType.EXCLUDED && (
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">ก่อน VAT (+7%)</span>
+                                    )}
+                                    {sale.vat_type === VatType.NO_VAT && (
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">ไม่มี VAT</span>
+                                    )}
+                                    {sale.gas_return_kg && <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-medium">กำไรแก๊ส: {sale.gas_return_kg} กก.</span>}
                                 </div>
                                 <p className="text-xs text-gray-400 mt-1">{new Date(sale.date).toLocaleDateString('th-TH')} - {sale.invoice_number}</p>
                             </div>
-                            <p className="text-lg font-bold text-green-600 whitespace-nowrap">+{sale.total_amount.toLocaleString('th-TH')} ฿</p>
+                            <p className="text-lg font-bold text-green-600 whitespace-nowrap">+{sale.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿</p>
                         </div>
                     </div>
                     <div className="bg-slate-50/70 px-4 py-2.5 flex flex-wrap justify-end gap-2 items-center border-t border-slate-200/80">
@@ -777,7 +948,7 @@ const Transactions: React.FC = () => {
   );
 
   const renderExpenses = () => (
-     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         {expenses.map((expense: Expense) => (
             <Card key={expense.id} className="!p-0">
                 <div className="p-4">

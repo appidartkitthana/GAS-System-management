@@ -28,10 +28,10 @@ const NavTab: React.FC<NavTabProps> = ({ label, page, imgSrc, fallbackIcon, acti
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+      className={`group relative flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
         isActive
-          ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/25 scale-[1.02]'
-          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+          ? 'bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 text-white shadow-lg shadow-orange-500/30 scale-[1.03]'
+          : 'text-slate-700 hover:text-orange-600 hover:bg-white/80'
       }`}
     >
       {imgSrc ? (
@@ -39,20 +39,29 @@ const NavTab: React.FC<NavTabProps> = ({ label, page, imgSrc, fallbackIcon, acti
           src={imgSrc}
           alt={label}
           referrerPolicy="no-referrer"
-          className={`w-5 h-5 object-cover rounded-md ${isActive ? 'ring-1 ring-white/50' : ''}`}
+          className={`w-6 h-6 object-cover rounded-lg shadow-sm transition-transform group-hover:scale-110 ${
+            isActive ? 'ring-2 ring-white/70 shadow-orange-700/50' : 'border border-slate-200'
+          }`}
         />
       ) : (
-        <div className={`w-5 h-5 flex items-center justify-center ${isActive ? 'text-white' : 'text-slate-500'}`}>
+        <div
+          className={`w-6 h-6 flex items-center justify-center rounded-lg transition-transform group-hover:scale-110 ${
+            isActive ? 'text-white' : 'text-slate-600 group-hover:text-orange-500'
+          }`}
+        >
           {fallbackIcon}
         </div>
       )}
-      <span>{label}</span>
+      <span className="tracking-tight text-[15px]">{label}</span>
+      {isActive && (
+        <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-4 h-1 bg-orange-600 rounded-full shadow-sm"></span>
+      )}
     </button>
   );
 };
 
 const DesktopNav: React.FC<DesktopNavProps> = ({ activePage, setActivePage }) => {
-  const { companyInfo } = useApp();
+  const { companyInfo, sales } = useApp();
   const todayStr = new Date().toLocaleDateString('th-TH', {
     weekday: 'short',
     year: 'numeric',
@@ -60,95 +69,113 @@ const DesktopNav: React.FC<DesktopNavProps> = ({ activePage, setActivePage }) =>
     day: 'numeric',
   });
 
+  // Calculate today's sales count
+  const todayISO = new Date().toISOString().split('T')[0];
+  const todaySalesCount = sales.filter(s => s.date && s.date.startsWith(todayISO)).length;
+
   const rawLogo = companyInfo.logo || 'https://drive.google.com/file/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8/view?usp=sharing';
   const logoUrl = normalizeGoogleDriveUrl(rawLogo);
   const storeName = companyInfo.name || 'บริษัท สมเกียรติ เซอร์วิส แก๊ส จำกัด';
 
   return (
-    <header className="hidden lg:block sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-orange-100 shadow-sm">
-      <div className="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between gap-4">
+    <header className="hidden lg:block sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-orange-200/70 shadow-sm">
+      <div className="w-full max-w-[1760px] mx-auto px-6 xl:px-8 py-3 flex items-center justify-between gap-6">
         {/* Logo & Store Title */}
-        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActivePage('DASHBOARD')}>
-          <img
-            src={logoUrl}
-            alt={storeName}
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-              const target = e.currentTarget;
-              const step = target.dataset.step || '0';
-              if (step === '0') {
-                target.dataset.step = '1';
-                target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-              } else if (step === '1') {
-                target.dataset.step = '2';
-                target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
-              } else {
-                target.src = somkiatOfficialLogo;
-              }
-            }}
-            className="h-10 w-auto max-w-[140px] object-contain flex-shrink-0"
-          />
+        <div className="flex items-center gap-3.5 cursor-pointer group" onClick={() => setActivePage('DASHBOARD')}>
+          <div className="p-1 bg-orange-50 rounded-xl border border-orange-200/80 shadow-sm group-hover:border-orange-300 transition-all">
+            <img
+              src={logoUrl}
+              alt={storeName}
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const target = e.currentTarget;
+                const step = target.dataset.step || '0';
+                if (step === '0') {
+                  target.dataset.step = '1';
+                  target.src = 'https://lh3.googleusercontent.com/d/19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                } else if (step === '1') {
+                  target.dataset.step = '2';
+                  target.src = 'https://drive.google.com/uc?export=view&id=19dJkwyQzqOrfZOSZNzqHqv6iDzs7qRq8';
+                } else {
+                  target.src = somkiatOfficialLogo;
+                }
+              }}
+              className="h-11 w-auto max-w-[150px] object-contain flex-shrink-0"
+            />
+          </div>
           <div>
-            <h1 className="text-base font-extrabold text-slate-800 tracking-tight leading-tight group-hover:text-orange-600 transition-colors">
+            <h1 className="text-lg font-black text-slate-900 tracking-tight leading-tight group-hover:text-orange-600 transition-colors">
               {storeName}
             </h1>
-            <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider">
-              ระบบจัดการร้านก๊าซหุงต้ม
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[11px] text-orange-600 font-bold tracking-wide">
+                ระบบจัดการร้านก๊าซหุงต้ม
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.2 rounded-full border border-emerald-200">
+                ออนไลน์
+              </span>
+            </div>
           </div>
         </div>
 
-
-        {/* Navigation Tabs */}
-        <nav className="flex items-center gap-1.5 bg-slate-100/70 p-1.5 rounded-2xl border border-slate-200/60 shadow-inner">
+        {/* Navigation Tabs - Large & Clear */}
+        <nav className="flex items-center gap-2 bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
           <NavTab
-            label="ภาพรวม"
+            label="ภาพรวมร้าน"
             page="DASHBOARD"
             imgSrc={somkiatOfficialLogo}
             activePage={activePage}
             onClick={() => setActivePage('DASHBOARD')}
           />
           <NavTab
-            label="รายรับ/จ่าย"
+            label="รายการขาย/จ่าย"
             page="TRANSACTIONS"
             imgSrc={receipt3D}
             activePage={activePage}
             onClick={() => setActivePage('TRANSACTIONS')}
           />
           <NavTab
-            label="รายงาน"
+            label="รายงานสรุป"
             page="REPORTS"
             imgSrc={report3D}
             activePage={activePage}
             onClick={() => setActivePage('REPORTS')}
           />
           <NavTab
-            label="ลูกค้า"
+            label="ฐานข้อมูลลูกค้า"
             page="CUSTOMERS"
             imgSrc={customer3D}
             activePage={activePage}
             onClick={() => setActivePage('CUSTOMERS')}
           />
           <NavTab
-            label="สต็อก"
+            label="สต็อกสินค้า"
             page="INVENTORY"
-            fallbackIcon={<ArchiveBoxIcon className="h-4 w-4" />}
+            fallbackIcon={<ArchiveBoxIcon className="h-5 w-5" />}
             activePage={activePage}
             onClick={() => setActivePage('INVENTORY')}
           />
           <NavTab
-            label="ตั้งค่า"
+            label="ตั้งค่าร้าน"
             page="SETTINGS"
-            fallbackIcon={<CogIcon className="h-4 w-4" />}
+            fallbackIcon={<CogIcon className="h-5 w-5" />}
             activePage={activePage}
             onClick={() => setActivePage('SETTINGS')}
           />
         </nav>
 
-        {/* Date Display Badge */}
-        <div className="flex items-center gap-2 text-xs text-slate-600 font-medium bg-orange-50/80 px-3 py-1.5 rounded-xl border border-orange-200/60">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>{todayStr}</span>
+        {/* Right Info: Date & Quick Status */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 text-xs text-slate-700 font-semibold bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-2 rounded-xl border border-orange-200/80 shadow-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100 animate-pulse"></span>
+            <span>{todayStr}</span>
+            {todaySalesCount > 0 && (
+              <span className="bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                วันนี้ {todaySalesCount} บิล
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </header>

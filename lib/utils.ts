@@ -1,5 +1,7 @@
 
 
+import { Customer, Brand, Size, VatType } from '../types';
+
 /**
  * Formats a Date object into a 'YYYY-MM-DD' string suitable for date input fields.
  * This avoids timezone issues that can arise from using .toISOString().
@@ -210,3 +212,226 @@ export const normalizeGoogleDriveUrl = (url: string): string => {
   }
   return url;
 };
+
+/**
+ * Accurately look up price for a specific customer, brand, and size.
+ * Checks price_list specific pricing first, then falls back to customer default price.
+ */
+export const getCustomerPriceForItem = (
+  customer: Customer | undefined,
+  brand: Brand | string,
+  size: Size | string
+): { price: number; found: boolean; source: 'price_list' | 'customer_base' | 'not_found' } => {
+  if (!customer) return { price: 0, found: false, source: 'not_found' };
+
+  // 1. Check specific price list first (high priority)
+  if (customer.price_list && customer.price_list.length > 0) {
+    const specific = customer.price_list.find(p => p.brand === brand && p.size === size);
+    if (specific && typeof specific.price === 'number' && specific.price > 0) {
+      return { price: specific.price, found: true, source: 'price_list' };
+    }
+  }
+
+  // 2. Check base customer price
+  if (typeof customer.price === 'number' && customer.price > 0) {
+    return { price: customer.price, found: true, source: 'customer_base' };
+  }
+
+  return { price: 0, found: false, source: 'not_found' };
+};
+
+export interface VatBreakdown {
+  subtotal: number;       // ยอดรวมสินค้า (ก่อนหักส่วนลด)
+  deductions: number;     // หักส่วนลดคืนเนื้อแก๊ส
+  netAmount: number;      // ยอดสุทธิหลังหักส่วนลด
+  preVatAmount: number;   // มูลค่าก่อน VAT
+  vatAmount: number;      // ภาษีมูลค่าเพิ่ม 7%
+  grandTotal: number;     // ยอดรวมสุทธิที่ต้องชำระ (Grand Total)
+  vatRate: number;        // 7 หรือ 0
+  vatType: VatType;
+}
+
+export interface InvoiceCalculatedTotals {
+  items: any[];
+  subtotal: number;         // รวมเป็นเงิน (ก่อนหักส่วนลด)
+  gasReturnKg: number;      // กิโลกรัมแก๊สคืน
+  gasReturnPrice: number;   // ราคาคืนแก๊สต่อ กก.
+  returnDeduction: number;  // ยอดหักส่วนลดคืนเนื้อแก๊ส
+  netAmount: number;        // ยอดสุทธิหลังหักส่วนลด (Net Amount)
+  preVatAmount: number;     // มูลค่าก่อนภาษี (Pre-VAT Amount)
+  vatAmount: number;        // ภาษีมูลค่าเพิ่ม 7% (VAT Amount)
+  grandTotal: number;       // ยอดรวมสุทธิที่ต้องชำระ (Grand Total)
+  vatRate: number;          // 7 หรือ 0
+  vatType: VatType;         // INCLUDED | EXCLUDED | NO_VAT
+  priceIncludesVat: boolean;// true if VatType.INCLUDED
+  thaiBaht: string;         // จำนวนเงินตัวอักษรไทย
+  totalQuantity: number;    // จำนวนชิ้น/ถังรวม
+  totalGasWeightKg: number; // น้ำหนักแก๊สรวม (กก.)
+}
+
+/**
+ * Universal Single-Source Calculation Engine for all invoices, receipts, tax invoices, cash bills, and delivery notes.
+ * Mandated by PART 17 & PART 18 to eliminate VAT duplication and calculation discrepancies.
+ */
+export const calculateInvoiceTotals = (
+  sale: any,
+  fallbackCustomer?: Customer
+): InvoiceCalculatedTotals => {
+  if (!sale) {
+    return {
+      items: [],
+      subtotal: 0,
+      gasReturnKg: 0,
+      gasReturnPrice: 0,
+      returnDeduction: 0,
+      netAmount: 0,
+      preVatAmount: 0,
+      vatAmount: 0,
+      grandTotal: 0,
+      vatRate: 0,
+      vatType: VatType.INCLUDED,
+      priceIncludesVat: true,
+      thaiBaht: 'ศูนย์บาทถ้วน',
+      totalQuantity: 0,
+      totalGasWeightKg: 0,
+    };
+  }
+
+  // 1. Normalize items array
+  const rawItems = sale.items && sale.items.length > 0
+    ? sale.items
+    : [{
+        brand: sale.tank_brand || Brand.PTT,
+        size: sale.tank_size || Size.S48,
+        quantity: typeof sale.quantity === 'number' ? sale.quantity : parseFloat(String(sale.quantity)) || 1,
+        unit_price: typeof sale.unit_price === 'number' ? sale.unit_price : parseFloat(String(sale.unit_price)) || 0,
+        total_price: typeof sale.total_amount === 'number' && sale.total_amount > 0 
+          ? sale.total_amount 
+          : (typeof sale.unit_price === 'number' ? sale.unit_price : 0) * (typeof sale.quantity === 'number' ? sale.quantity : 1),
+        item_type: 'GAS'
+      }];
+
+  const items = rawItems.map((item: any) => {
+    const qty = typeof item.quantity === 'number' ? item.quantity : parseFloat(String(item.quantity)) || 0;
+    const unitP = typeof item.unit_price === 'number' ? item.unit_price : parseFloat(String(item.unit_price)) || 0;
+    const totalP = typeof item.total_price === 'number'
+      ? item.total_price
+      : Math.round(qty * unitP * 100) / 100;
+    return {
+      ...item,
+      quantity: qty,
+      unit_price: unitP,
+      total_price: totalP,
+      item_type: item.item_type || 'GAS'
+    };
+  });
+
+  const subtotal = Math.round(items.reduce((acc: number, item: any) => acc + (item.total_price || 0), 0) * 100) / 100;
+
+  const gasReturnKg = typeof sale.gas_return_kg === 'number'
+    ? sale.gas_return_kg
+    : parseFloat(String(sale.gas_return_kg || '0')) || 0;
+
+  const gasReturnPrice = typeof sale.gas_return_price === 'number'
+    ? sale.gas_return_price
+    : parseFloat(String(sale.gas_return_price || '0')) || 0;
+
+  const returnDeduction = Math.round((gasReturnKg * gasReturnPrice) * 100) / 100;
+  const netAmount = Math.max(0, Math.round((subtotal - returnDeduction) * 100) / 100);
+
+  // Determine VAT Mode
+  const effectiveVatType: VatType = sale.vat_type
+    || fallbackCustomer?.default_vat_type
+    || (sale.invoice_type === 'TAX_INVOICE' || sale.invoice_type === 'ใบกำกับภาษี' ? VatType.INCLUDED : VatType.INCLUDED);
+
+  let preVatAmount = 0;
+  let vatAmount = 0;
+  let grandTotal = 0;
+
+  if (effectiveVatType === VatType.INCLUDED) {
+    // ราคารวม VAT 7% แล้ว (ห้ามคิด VAT ซ้ำ)
+    grandTotal = netAmount;
+    preVatAmount = Math.round((grandTotal / 1.07) * 100) / 100;
+    vatAmount = Math.round((grandTotal - preVatAmount) * 100) / 100;
+  } else if (effectiveVatType === VatType.EXCLUDED) {
+    // ราคาก่อน VAT (ยังไม่รวม VAT 7% -> คำนวณเพิ่ม 7%)
+    preVatAmount = netAmount;
+    vatAmount = Math.round((preVatAmount * 0.07) * 100) / 100;
+    grandTotal = Math.round((preVatAmount + vatAmount) * 100) / 100;
+  } else {
+    // ไม่มี VAT (NO_VAT)
+    preVatAmount = netAmount;
+    vatAmount = 0;
+    grandTotal = netAmount;
+  }
+
+  const totalQuantity = items.reduce((acc: number, i: any) => acc + (i.quantity || 0), 0);
+  const totalGasWeightKg = items.reduce((acc: number, item: any) => {
+    if (item.item_type === 'ACCESSORY') return acc;
+    return acc + ((item.quantity || 0) * getGasWeightKg(item.size));
+  }, 0);
+
+  return {
+    items,
+    subtotal,
+    gasReturnKg,
+    gasReturnPrice,
+    returnDeduction,
+    netAmount,
+    preVatAmount,
+    vatAmount,
+    grandTotal,
+    vatRate: effectiveVatType !== VatType.NO_VAT ? 7 : 0,
+    vatType: effectiveVatType,
+    priceIncludesVat: effectiveVatType === VatType.INCLUDED,
+    thaiBaht: thaiBahtText(grandTotal),
+    totalQuantity,
+    totalGasWeightKg
+  };
+};
+
+/**
+ * Calculates VAT breakdown according to Thai Tax rules:
+ * - INCLUDED: ราคารวม VAT 7% แล้ว (Grand Total = Net, Pre-VAT = Net / 1.07, VAT = Net - Pre-VAT) -> ห้ามคิด VAT ซ้ำ!
+ * - EXCLUDED: ราคาก่อน VAT (Pre-VAT = Net, VAT = Net * 0.07, Grand Total = Pre-VAT + VAT)
+ * - NO_VAT: ไม่มี VAT (Pre-VAT = Net, VAT = 0, Grand Total = Net)
+ */
+export const calculateVatBreakdown = (
+  itemsTotal: number,
+  deductions: number = 0,
+  vatType: VatType = VatType.INCLUDED
+): VatBreakdown => {
+  const net = Math.max(0, itemsTotal - deductions);
+  let preVatAmount = 0;
+  let vatAmount = 0;
+  let grandTotal = 0;
+
+  if (vatType === VatType.INCLUDED) {
+    // ราคารวม VAT 7% แล้ว (ห้ามคิด VAT ซ้ำ)
+    grandTotal = Math.round(net * 100) / 100;
+    preVatAmount = Math.round((grandTotal / 1.07) * 100) / 100;
+    vatAmount = Math.round((grandTotal - preVatAmount) * 100) / 100;
+  } else if (vatType === VatType.EXCLUDED) {
+    // ราคาก่อน VAT (ยังไม่รวม VAT 7% -> คำนวณเพิ่ม 7%)
+    preVatAmount = Math.round(net * 100) / 100;
+    vatAmount = Math.round((preVatAmount * 0.07) * 100) / 100;
+    grandTotal = Math.round((preVatAmount + vatAmount) * 100) / 100;
+  } else {
+    // ไม่มี VAT (NO_VAT)
+    preVatAmount = Math.round(net * 100) / 100;
+    vatAmount = 0;
+    grandTotal = Math.round(net * 100) / 100;
+  }
+
+  return {
+    subtotal: Math.round(itemsTotal * 100) / 100,
+    deductions: Math.round(deductions * 100) / 100,
+    netAmount: Math.round(net * 100) / 100,
+    preVatAmount,
+    vatAmount,
+    grandTotal,
+    vatRate: vatType !== VatType.NO_VAT ? 7 : 0,
+    vatType
+  };
+};
+

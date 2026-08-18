@@ -1,7 +1,7 @@
 
 
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo, Page } from '../types';
+import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo, Page, TankLoanAuditLog } from '../types';
 import { supabaseClient } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 import { SELLER_INFO } from '../constants';
@@ -86,6 +86,11 @@ interface AppContextType {
     topCustomers: CustomerSalesStat[];
   };
 
+  // Tank Loan Logs & Audit Trail (PART 14)
+  tankLoanLogs: TankLoanAuditLog[];
+  addTankLoanLog: (log: Omit<TankLoanAuditLog, 'id' | 'timestamp' | 'date' | 'time'>) => void;
+  clearTankLoanLogs?: () => void;
+
   // CRUD operations
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<void>;
   updateCustomer: (customer: Customer) => Promise<void>;
@@ -126,6 +131,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem('expenseTypes');
     return saved ? JSON.parse(saved) : Object.values(ExpenseType);
   });
+
+  // Initialize Tank Loan Audit Logs (PART 14)
+  const [tankLoanLogs, setTankLoanLogs] = useState<TankLoanAuditLog[]>(() => {
+    const saved = localStorage.getItem('tankLoanLogs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const addTankLoanLog = (logData: Omit<TankLoanAuditLog, 'id' | 'timestamp' | 'date' | 'time'>) => {
+    const now = new Date();
+    const newLog: TankLoanAuditLog = {
+      ...logData,
+      id: 'LOG-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      timestamp: now.toISOString(),
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    };
+    setTankLoanLogs(prev => {
+      const updated = [newLog, ...prev];
+      localStorage.setItem('tankLoanLogs', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const clearTankLoanLogs = () => {
+    if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการล้างประวัติการแก้ไขถังยืมทั้งหมด?')) {
+      setTankLoanLogs([]);
+      localStorage.removeItem('tankLoanLogs');
+    }
+  };
 
   const updateCompanyInfo = (info: CompanyInfo) => {
       setCompanyInfoState(info);
@@ -715,7 +749,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addExpense, updateExpense, deleteExpense,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
     companyInfo, updateCompanyInfo, lowStockItems,
-    expenseTypes, addExpenseType, removeExpenseType, updateExpenseType
+    expenseTypes, addExpenseType, removeExpenseType, updateExpenseType,
+    tankLoanLogs, addTankLoanLog, clearTankLoanLogs
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
