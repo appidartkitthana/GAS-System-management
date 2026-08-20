@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
 import { Customer, Sale, Expense, InventoryItem, Brand, Size, PaymentMethod, BorrowedTank, InventoryCategory, ExpenseType, SaleItem, InvoiceType, CompanyInfo, Page, TankLoanAuditLog } from '../types';
-import { supabaseClient } from '../lib/supabaseClient';
+import { supabaseClient, resilientInsert, resilientUpdate } from '../lib/supabaseClient';
 import { formatSupabaseError, isSameDay, isSameMonth } from '../lib/utils';
 import { SELLER_INFO } from '../constants';
 
@@ -308,7 +308,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- CRUD Functions ---
   const addCustomer = async (data: Omit<Customer, 'id'>) => {
-    const { data: newCustomer, error } = await supabaseClient.from('customers').insert(data).select().single();
+    const { data: newCustomer, error } = await resilientInsert<Customer>('customers', data);
     if (error) alert(`Error adding customer: ${formatSupabaseError(error)}`);
     else if (newCustomer) {
       setCustomers(prev => [newCustomer, ...prev]);
@@ -318,7 +318,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateCustomer = async (data: Customer) => {
     const oldCustomer = customers.find(c => c.id === data.id);
     const { id, created_at, ...updateData } = data;
-    const { data: updatedCustomer, error } = await supabaseClient.from('customers').update(updateData).eq('id', id).select().single();
+    const { data: updatedCustomer, error } = await resilientUpdate<Customer>('customers', id, updateData);
     if (error) alert(`Error updating customer: ${formatSupabaseError(error)}`);
     else if (updatedCustomer) {
       setCustomers(prev => prev.map(c => c.id === data.id ? updatedCustomer : c));
@@ -349,10 +349,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else {
             safeData.cost_price = safeData.cost_price || getStandardCost(safeData.tank_brand, safeData.tank_size);
         }
-        const { data: newSale, error } = await supabaseClient.from('sales').insert(safeData).select().single();
+        const { data: newSale, error } = await resilientInsert<Sale>('sales', safeData);
         if (error) {
-            if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง (Schema Error). กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-            else alert(`Error adding sale: ${formatSupabaseError(error)}`);
+            alert(`Error adding sale: ${formatSupabaseError(error)}`);
         } else if (newSale) {
             setSales(prev => [newSale, ...prev]);
             if (newSale.items && Array.isArray(newSale.items)) {
@@ -367,10 +366,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const originalSale = sales.find(s => s.id === data.id);
     const { id, created_at, ...updateData } = data;
     const safeData = JSON.parse(JSON.stringify(updateData));
-    const { data: updatedSale, error } = await supabaseClient.from('sales').update(safeData).eq('id', id).select().single();
+    const { data: updatedSale, error } = await resilientUpdate<Sale>('sales', id, safeData);
      if (error) {
-        if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง. กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-        else alert(`Error updating sale: ${formatSupabaseError(error)}`);
+        alert(`Error updating sale: ${formatSupabaseError(error)}`);
     } else if (updatedSale) {
         if (originalSale) {
             // Revert
@@ -404,10 +402,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addExpense = async (data: Omit<Expense, 'id'>) => {
     try {
         const safeData = JSON.parse(JSON.stringify(data));
-        const { data: newExpense, error } = await supabaseClient.from('expenses').insert(safeData).select().single();
+        const { data: newExpense, error } = await resilientInsert<Expense>('expenses', safeData);
         if (error) {
-            if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง. กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-            else alert(`บันทึกรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
+            alert(`บันทึกรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
         } else if (newExpense) {
             setExpenses(prev => [newExpense, ...prev]);
             if (newExpense.refill_details) {
@@ -421,10 +418,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const originalExpense = expenses.find(e => e.id === data.id);
         const { id, created_at, ...updateData } = data;
         const safeData = JSON.parse(JSON.stringify(updateData));
-        const { data: updatedExpense, error } = await supabaseClient.from('expenses').update(safeData).eq('id', id).select().single();
+        const { data: updatedExpense, error } = await resilientUpdate<Expense>('expenses', id, safeData);
          if (error) {
-            if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง. กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-            else alert(`แก้ไขรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
+            alert(`แก้ไขรายจ่ายไม่สำเร็จ: ${formatSupabaseError(error)}`);
         } else if (updatedExpense) {
             if (originalExpense?.refill_details) {
                 for (const item of originalExpense.refill_details) await updateInventoryCount(item.brand, item.size, -item.quantity);
@@ -455,19 +451,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addInventoryItem = async (data: Omit<InventoryItem, 'id'>) => {
      const safeData = { ...data, tank_brand: data.tank_brand || null, tank_size: data.tank_size || null };
      const sanitizedData = JSON.parse(JSON.stringify(safeData));
-     const { data: newItem, error } = await supabaseClient.from('inventory').insert(sanitizedData).select().single();
+     const { data: newItem, error } = await resilientInsert<InventoryItem>('inventory', sanitizedData);
      if (error) {
-        if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง. กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-        else alert(`Error adding inventory: ${formatSupabaseError(error)}`);
+        alert(`Error adding inventory: ${formatSupabaseError(error)}`);
      } else if (newItem) setInventory(prev => [newItem, ...prev]);
   };
   const updateInventoryItem = async (data: InventoryItem) => {
       const { id, created_at, ...updateData } = data;
       const sanitizedData = JSON.parse(JSON.stringify(updateData));
-      const { data: updatedItem, error } = await supabaseClient.from('inventory').update(sanitizedData).eq('id', id).select().single();
+      const { data: updatedItem, error } = await resilientUpdate<InventoryItem>('inventory', id, sanitizedData);
       if (error) {
-        if (error.code === '42703') alert('โครงสร้างฐานข้อมูลไม่ถูกต้อง. กรุณาไปที่ "ตั้งค่า" > "เริ่มการทดสอบระบบ"');
-        else alert(`Error updating inventory: ${formatSupabaseError(error)}`);
+        alert(`Error updating inventory: ${formatSupabaseError(error)}`);
       } else if (updatedItem) setInventory(prev => prev.map(i => i.id === data.id ? updatedItem : i));
   };
   const deleteInventoryItem = async (id: string) => {

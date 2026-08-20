@@ -10,6 +10,7 @@ import { Brand, Size, ExpenseType, PaymentMethod, InvoiceType, InventoryCategory
 import { formatSupabaseError, normalizeGoogleDriveUrl } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
 import somkiatOfficialLogo from '../src/assets/images/somkiat_official_logo_1786700374453.jpg';
+import { exportToExcel, exportToSql } from '../lib/backupUtils';
 
 type Status = 'idle' | 'testing' | 'success' | 'error';
 type ErrorType = 'schema' | 'rls' | 'connection' | 'unknown';
@@ -22,7 +23,18 @@ interface TestResult {
 }
 
 const Settings: React.FC = () => {
-  const { companyInfo, updateCompanyInfo, expenseTypes, addExpenseType, removeExpenseType } = useAppContext();
+  const { 
+    companyInfo, 
+    updateCompanyInfo, 
+    expenseTypes, 
+    addExpenseType, 
+    removeExpenseType,
+    customers,
+    inventory,
+    sales,
+    expenses,
+    tankLoanLogs
+  } = useAppContext();
   const [newExpenseType, setNewExpenseType] = useState('');
   
   const [testResult, setTestResult] = useState<TestResult>({
@@ -35,6 +47,106 @@ const Settings: React.FC = () => {
   // Company Info Form State
   const [formInfo, setFormInfo] = useState<CompanyInfo>(companyInfo);
   const [isSaved, setIsSaved] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+
+  // Backup handlers
+  const handleExportExcel = () => {
+    try {
+      setBackupStatus('กำลังสร้างไฟล์ Excel (.xlsx)...');
+      exportToExcel(customers, inventory, sales, expenses, companyInfo, tankLoanLogs || []);
+      setBackupStatus('✅ ดาวน์โหลดไฟล์ Excel สำรองข้อมูลเรียบร้อยแล้ว');
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาดในการส่งออก Excel: ${err.message}`);
+      setBackupStatus(null);
+    }
+  };
+
+  const handleExportSql = () => {
+    try {
+      setBackupStatus('กำลังสร้างไฟล์ SQL Dump (.sql)...');
+      exportToSql(customers, inventory, sales, expenses, companyInfo);
+      setBackupStatus('✅ ดาวน์โหลดไฟล์ SQL Dump สำรองข้อมูลเรียบร้อยแล้ว');
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาดในการส่งออก SQL: ${err.message}`);
+      setBackupStatus(null);
+    }
+  };
+
+  const handleExportAll = () => {
+    try {
+      setBackupStatus('กำลังสำรองข้อมูลทั้งหมด (Excel + SQL)...');
+      exportToExcel(customers, inventory, sales, expenses, companyInfo, tankLoanLogs || []);
+      setTimeout(() => {
+        exportToSql(customers, inventory, sales, expenses, companyInfo);
+        setBackupStatus('✅ สำรองข้อมูลทั้ง Excel และ SQL เรียบร้อยแล้ว');
+        setTimeout(() => setBackupStatus(null), 4000);
+      }, 500);
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาดในการสำรองข้อมูล: ${err.message}`);
+      setBackupStatus(null);
+    }
+  };
+
+  const fullSqlScript = `-- คำสั่ง SQL สำหรับอัปเกรดฐานข้อมูลร้านสมเกียรติแก๊ส (Safe Migration)
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS tax_id TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS borrowed_tanks JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS price_list JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS google_map_url TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS default_vat_type TEXT DEFAULT 'INCLUDED';
+
+ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'GAS';
+ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
+ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER DEFAULT 5;
+ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.inventory ALTER COLUMN tank_brand DROP NOT NULL;
+ALTER TABLE public.inventory ALTER COLUMN tank_size DROP NOT NULL;
+
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_kg NUMERIC DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_price NUMERIC DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_qty INTEGER DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS vat_type TEXT DEFAULT 'INCLUDED';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS pre_vat_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS vat_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS invoice_number TEXT;
+
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS payee TEXT;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS refill_details JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS gas_return_kg NUMERIC DEFAULT 0;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS gas_return_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.expenses ALTER COLUMN type TYPE TEXT;
+
+-- เปิดสิทธิ์ Row-Level Security (RLS)
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inventory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Enable all access for all users" ON public.customers;
+CREATE POLICY "Enable all access for all users" ON public.customers FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Enable all access for all users" ON public.inventory;
+CREATE POLICY "Enable all access for all users" ON public.inventory FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Enable all access for all users" ON public.sales;
+CREATE POLICY "Enable all access for all users" ON public.sales FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Enable all access for all users" ON public.expenses;
+CREATE POLICY "Enable all access for all users" ON public.expenses FOR ALL USING (true) WITH CHECK (true);`;
+
+  const copySqlToClipboard = (sqlText: string) => {
+    navigator.clipboard.writeText(sqlText);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
 
   const handleInfoChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const { name, value } = e.target;
@@ -87,22 +199,32 @@ const Settings: React.FC = () => {
       
       // Define Columns to check
       const checks = [
-          { table: 'customers', column: 'borrowed_tanks', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN borrowed_tanks jsonb;' },
-          { table: 'customers', column: 'price_list', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN price_list jsonb;' },
-          { table: 'customers', column: 'google_map_url', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN google_map_url text;' },
-          { table: 'customers', column: 'notes', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN notes text;' },
-          { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN category text;' },
-          { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN name text;' },
-          { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN cost_price numeric;' },
-          { table: 'inventory', column: 'notes', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN notes text;' },
-          { table: 'inventory', column: 'low_stock_threshold', type: 'integer', fix: 'ALTER TABLE public.inventory ADD COLUMN low_stock_threshold integer;' },
-          { table: 'expenses', column: 'refill_details', type: 'jsonb', fix: 'ALTER TABLE public.expenses ADD COLUMN refill_details jsonb;' },
-          { table: 'expenses', column: 'payee', type: 'text', fix: 'ALTER TABLE public.expenses ADD COLUMN payee text;' },
-          { table: 'expenses', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_kg numeric;' },
-          { table: 'expenses', column: 'gas_return_amount', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN gas_return_amount numeric;' },
-          { table: 'sales', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN cost_price numeric;' },
-          { table: 'sales', column: 'items', type: 'jsonb', fix: 'ALTER TABLE public.sales ADD COLUMN items jsonb;' },
-          { table: 'sales', column: 'gas_return_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN gas_return_price numeric;' },
+          { table: 'customers', column: 'borrowed_tanks', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS borrowed_tanks jsonb DEFAULT \'[]\'::jsonb;' },
+          { table: 'customers', column: 'price_list', type: 'jsonb', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS price_list jsonb DEFAULT \'[]\'::jsonb;' },
+          { table: 'customers', column: 'google_map_url', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS google_map_url text;' },
+          { table: 'customers', column: 'notes', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS notes text;' },
+          { table: 'customers', column: 'phone', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS phone text;' },
+          { table: 'customers', column: 'address', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS address text;' },
+          { table: 'customers', column: 'tax_id', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS tax_id text;' },
+          { table: 'customers', column: 'default_vat_type', type: 'text', fix: 'ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS default_vat_type text DEFAULT \'INCLUDED\';' },
+          { table: 'inventory', column: 'category', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS category text DEFAULT \'GAS\';' },
+          { table: 'inventory', column: 'name', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS name text;' },
+          { table: 'inventory', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS cost_price numeric DEFAULT 0;' },
+          { table: 'inventory', column: 'notes', type: 'text', fix: 'ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS notes text;' },
+          { table: 'inventory', column: 'low_stock_threshold', type: 'integer', fix: 'ALTER TABLE public.inventory ADD COLUMN IF NOT EXISTS low_stock_threshold integer DEFAULT 5;' },
+          { table: 'expenses', column: 'refill_details', type: 'jsonb', fix: 'ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS refill_details jsonb DEFAULT \'[]\'::jsonb;' },
+          { table: 'expenses', column: 'payee', type: 'text', fix: 'ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS payee text;' },
+          { table: 'expenses', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS gas_return_kg numeric DEFAULT 0;' },
+          { table: 'expenses', column: 'gas_return_amount', type: 'numeric', fix: 'ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS gas_return_amount numeric DEFAULT 0;' },
+          { table: 'sales', column: 'cost_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS cost_price numeric DEFAULT 0;' },
+          { table: 'sales', column: 'items', type: 'jsonb', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS items jsonb DEFAULT \'[]\'::jsonb;' },
+          { table: 'sales', column: 'gas_return_price', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_price numeric DEFAULT 0;' },
+          { table: 'sales', column: 'gas_return_kg', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_kg numeric DEFAULT 0;' },
+          { table: 'sales', column: 'gas_return_qty', type: 'integer', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS gas_return_qty integer DEFAULT 0;' },
+          { table: 'sales', column: 'vat_type', type: 'text', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS vat_type text DEFAULT \'INCLUDED\';' },
+          { table: 'sales', column: 'pre_vat_amount', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS pre_vat_amount numeric DEFAULT 0;' },
+          { table: 'sales', column: 'vat_amount', type: 'numeric', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS vat_amount numeric DEFAULT 0;' },
+          { table: 'sales', column: 'invoice_number', type: 'text', fix: 'ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS invoice_number text;' },
       ];
 
       for (const check of checks) {
@@ -288,9 +410,18 @@ const Settings: React.FC = () => {
           
           {errorType === 'schema' && schemaFixes.length > 0 && (
             <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
-              <p className="font-bold mb-2">วิธีแก้ไข (อัปเกรดฐานข้อมูล):</p>
-              <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase SQL Editor:</p>
-              <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
+              <div className="flex justify-between items-center mb-2">
+                <p className="font-bold">วิธีแก้ไข (อัปเกรดฐานข้อมูล):</p>
+                <button
+                  type="button"
+                  onClick={() => copySqlToClipboard(schemaFixes.map(fix => fix.fix).join('\n'))}
+                  className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs font-semibold shadow-sm transition-colors"
+                >
+                  {copiedSql ? '✓ คัดลอกสำเร็จ' : '📋 คัดลอกคำสั่ง SQL'}
+                </button>
+              </div>
+              <p className="mb-2">คัดลอกโค้ด SQL นี้ไปรันใน Supabase Dashboard &gt; SQL Editor:</p>
+              <pre className="bg-gray-800 text-white p-2.5 rounded-md text-xs overflow-x-auto select-all">
                 <code>{schemaFixes.map(fix => fix.fix).join('\n')}</code>
               </pre>
             </div>
@@ -299,7 +430,7 @@ const Settings: React.FC = () => {
            {errorType === 'rls' && (
             <div className="mt-3 pt-3 border-t border-red-200 text-xs text-gray-700">
               <p className="font-bold mb-2">วิธีแก้ไข (เปิดสิทธิ์การใช้งาน):</p>
-              <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto">
+              <pre className="bg-gray-800 text-white p-2 rounded-md text-xs overflow-x-auto select-all">
                 <code>
 {`CREATE POLICY "Enable all access for all users" ON "public"."customers" FOR ALL USING (true);
 CREATE POLICY "Enable all access for all users" ON "public"."inventory" FOR ALL USING (true);
@@ -410,11 +541,114 @@ CREATE POLICY "Enable all access for all users" ON "public"."expenses" FOR ALL U
               </form>
           </Card>
 
+          {/* Backup Database Section */}
           <Card>
-            <h2 className="text-lg font-semibold mb-2 text-gray-700">วินิจฉัยระบบฐานข้อมูล</h2>
-            <button onClick={handleTestConnection} disabled={testResult.status === 'testing'} className="w-full px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg hover:bg-sky-600 disabled:bg-sky-300 transition-colors">
-              {testResult.status === 'testing' ? 'กำลังทดสอบ...' : 'เริ่มการทดสอบระบบ'}
-            </button>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                <span>💾</span> สำรองข้อมูลระบบ (Backup Data)
+              </h2>
+              <span className="text-xs bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-full">
+                พร้อมส่งออก
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              ดาวน์โหลดข้อมูลทุกตารางในระบบเป็นไฟล์ <strong>Excel (.xlsx)</strong> และ <strong>SQL Dump (.sql)</strong> สำหรับเก็บรักษาความปลอดภัยของข้อมูล
+            </p>
+
+            {/* Current Data Overview */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              <div className="text-center bg-white p-2 rounded border border-slate-100 shadow-xs">
+                <span className="block text-[11px] text-gray-500">👥 ลูกค้า</span>
+                <span className="text-base font-bold text-sky-600">{customers.length}</span>
+                <span className="text-[10px] text-gray-400 block">ราย</span>
+              </div>
+              <div className="text-center bg-white p-2 rounded border border-slate-100 shadow-xs">
+                <span className="block text-[11px] text-gray-500">📦 สต็อก</span>
+                <span className="text-base font-bold text-amber-600">{inventory.length}</span>
+                <span className="text-[10px] text-gray-400 block">รายการ</span>
+              </div>
+              <div className="text-center bg-white p-2 rounded border border-slate-100 shadow-xs">
+                <span className="block text-[11px] text-gray-500">🧾 การขาย</span>
+                <span className="text-base font-bold text-emerald-600">{sales.length}</span>
+                <span className="text-[10px] text-gray-400 block">บิล</span>
+              </div>
+              <div className="text-center bg-white p-2 rounded border border-slate-100 shadow-xs">
+                <span className="block text-[11px] text-gray-500">💸 รายจ่าย</span>
+                <span className="text-base font-bold text-rose-600">{expenses.length}</span>
+                <span className="text-[10px] text-gray-400 block">รายการ</span>
+              </div>
+            </div>
+
+            {/* Export Buttons */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors"
+                >
+                  <span>📊</span> ดาวน์โหลด Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportSql}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors"
+                >
+                  <span>🗄️</span> ดาวน์โหลด SQL Dump (.sql)
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportAll}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold rounded-lg transition-colors"
+              >
+                <span>⚡</span> สำรองข้อมูลทั้งสองไฟล์ (Excel + SQL) ในคลิกเดียว
+              </button>
+            </div>
+
+            {/* Status Feedback */}
+            {backupStatus && (
+              <div className="mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-fadeIn">
+                <CheckCircleIcon />
+                <span>{backupStatus}</span>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-semibold text-gray-700">วินิจฉัยและซ่อมแซมฐานข้อมูล</h2>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">ตรวจสอบและซ่อมแซมคอลัมน์ใน Supabase เพื่อให้ระบบบันทึกรายการได้ 100%</p>
+            <div className="space-y-3">
+              <button 
+                onClick={handleTestConnection} 
+                disabled={testResult.status === 'testing'} 
+                className="w-full px-4 py-2.5 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700 disabled:bg-sky-300 shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                {testResult.status === 'testing' ? 'กำลังทดสอบระบบ...' : '⚡ เริ่มการทดสอบระบบและตรวจจับ Schema'}
+              </button>
+
+              <div className="pt-3 border-t border-gray-100">
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className="text-xs font-bold text-gray-700">คำสั่ง SQL อัปเกรดฐานข้อมูลทั้งหมด (Safe Migration)</span>
+                  <button
+                    type="button"
+                    onClick={() => copySqlToClipboard(fullSqlScript)}
+                    className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-800 text-white hover:bg-slate-900 shadow-sm transition-colors"
+                  >
+                    {copiedSql ? '✓ คัดลอกแล้ว' : '📋 คัดลอก SQL ทั้งหมด'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-500 mb-2">สามารถนำโค้ดนี้ไปรันในเมนู SQL Editor บน Supabase ได้ตลอดเวลา ปลอดภัย ไม่ลบข้อมูลเดิม</p>
+                <details className="text-xs bg-slate-50 p-2 rounded border border-slate-200 cursor-pointer">
+                  <summary className="font-semibold text-slate-700">ดูคำสั่ง SQL อัปเกรดทั้งหมด</summary>
+                  <pre className="mt-2 bg-slate-900 text-slate-100 p-2.5 rounded text-[11px] overflow-x-auto max-h-48 overflow-y-auto">
+                    <code>{fullSqlScript}</code>
+                  </pre>
+                </details>
+              </div>
+            </div>
             {renderStatus()}
           </Card>
         </div>
