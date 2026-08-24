@@ -1199,6 +1199,31 @@ const Reports: React.FC = () => {
           </Card>
         </div>
       )}
+
+      {/* Fullscreen Printable Monthly Report Modal */}
+      {showMonthlyReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex justify-center items-start overflow-y-auto p-2 sm:p-6 no-print">
+          <MonthlyReportA4
+            selectedYear={new Date(appliedStartDate).getFullYear()}
+            selectedMonth={new Date(appliedStartDate).getMonth()}
+            customStartDate={appliedStartDate}
+            customEndDate={appliedEndDate}
+            onClose={() => setShowMonthlyReportModal(false)}
+          />
+        </div>
+      )}
+
+      {/* Fullscreen Printable Customer Statement Modal */}
+      {statementCustomer && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex justify-center items-start overflow-y-auto p-2 sm:p-6 no-print">
+          <CustomerStatementA4
+            selectedCustomer={statementCustomer}
+            selectedYear={new Date(appliedStartDate).getFullYear()}
+            selectedMonth={new Date(appliedStartDate).getMonth()}
+            onClose={() => setStatementCustomer(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

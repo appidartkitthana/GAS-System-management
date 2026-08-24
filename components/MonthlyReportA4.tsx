@@ -7,6 +7,8 @@ import PrinterIcon from './icons/PrinterIcon';
 interface MonthlyReportA4Props {
   selectedYear: number;
   selectedMonth: number; // 0-indexed (0 = Jan, 11 = Dec)
+  customStartDate?: string;
+  customEndDate?: string;
   onClose?: () => void;
 }
 
@@ -18,13 +20,15 @@ const MONTH_NAMES = [
 const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
   selectedYear,
   selectedMonth,
+  customStartDate,
+  customEndDate,
   onClose
 }) => {
   const { companyInfo, sales, expenses, customers, inventory } = useAppContext();
 
-  // Compute start and end dates for selected month
-  const startDate = formatDateForInput(new Date(selectedYear, selectedMonth, 1));
-  const endDate = formatDateForInput(new Date(selectedYear, selectedMonth + 1, 0));
+  // Compute start and end dates for selected month or custom range
+  const startDate = customStartDate || formatDateForInput(new Date(selectedYear, selectedMonth, 1));
+  const endDate = customEndDate || formatDateForInput(new Date(selectedYear, selectedMonth + 1, 0));
 
   // Use the single source of truth report calculations
   const metrics = calculateReportMetrics(sales, expenses, customers, inventory, startDate, endDate);
@@ -73,7 +77,7 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 0;
+          margin: 10mm 10mm 12mm 10mm;
         }
         @media print {
           html, body {
@@ -82,7 +86,9 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
             overflow: visible !important;
             margin: 0 !important;
             padding: 0 !important;
-            background: white;
+            background: white !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
           body * {
             visibility: hidden;
@@ -94,29 +100,50 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
             position: absolute;
             left: 0;
             top: 0;
-            width: 210mm;
+            width: 190mm !important;
+            max-width: 190mm !important;
             height: auto;
-            min-height: 297mm;
+            min-height: auto;
             box-sizing: border-box !important;
-            margin: 0 !important;
-            padding: 10mm 12mm !important;
-            background: white;
-            box-shadow: none;
-            border-radius: 0;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            background: white !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
           }
           .no-print {
             display: none !important;
           }
-          thead { display: table-header-group; }
-          tr { page-break-inside: avoid; }
+          .print-section {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-bottom: 16px;
+          }
+          thead {
+            display: table-header-group;
+          }
+          tfoot {
+            display: table-footer-group;
+          }
+          tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
         }
       `}</style>
 
       {/* Control Panel Bar */}
       <div className="bg-white border border-gray-300 shadow-md rounded-lg p-4 mb-4 w-full max-w-[210mm] flex justify-between items-center no-print">
         <div>
-          <h2 className="font-bold text-gray-800 text-sm">รายงานสรุปประจำเดือน A4</h2>
-          <p className="text-xs text-gray-500">ประจำเดือน {MONTH_NAMES[selectedMonth]} {selectedYear + 543}</p>
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-gray-800 text-sm">รายงานสรุปประจำเดือน & ตรวจสอบภาษี A4</h2>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+              ✓ ข้อมูลเชื่อมโยง Dashboard 100%
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            ประจำช่วง {startDate} ถึง {endDate} (เดือน {MONTH_NAMES[selectedMonth]} {selectedYear + 543})
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -317,7 +344,7 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
           </div>
 
           {/* Section 4: Detailed Gas Refills at Plant */}
-          <div className="mb-5">
+          <div className="mb-5 print-section">
             <h3 className="text-xs font-bold text-sky-800 bg-sky-50 border-l-4 border-sky-600 px-2 py-1 mb-2 uppercase">
               4. รายละเอียดการเติมแก๊สเข้าโรงบรรจุ (Gas Refill Breakdown)
             </h3>
@@ -365,6 +392,94 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Section 5: Tax & Accounting Audit Comparison */}
+          {metrics.taxComparison && (
+            <div className="mb-5 print-section border border-gray-300 rounded-lg p-3 bg-gray-50/80">
+              <div className="flex justify-between items-center pb-2 mb-2 border-b border-gray-300">
+                <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase">
+                  <span>⚖️</span>
+                  5. สรุปเปรียบเทียบยอดสำหรับตรวจสอบภาษี & บัญชี (Tax Invoice vs. Credit Refill)
+                </h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  metrics.taxComparison.status === 'SAFE'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : metrics.taxComparison.status === 'EQUAL'
+                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                    : 'bg-rose-100 text-rose-800 border-rose-300'
+                }`}>
+                  {metrics.taxComparison.statusLabel}
+                </span>
+              </div>
+
+              <table className="w-full border-collapse border border-gray-300 text-[11px] mb-2 bg-white">
+                <thead>
+                  <tr className="bg-slate-700 text-white font-semibold">
+                    <th className="py-1.5 px-2 text-left border border-slate-800">รายการเปรียบเทียบ</th>
+                    <th className="py-1.5 px-2 text-center border border-slate-800 w-20">จำนวนบิล/ครั้ง</th>
+                    <th className="py-1.5 px-2 text-center border border-slate-800 w-24">จำนวนถัง</th>
+                    <th className="py-1.5 px-2 text-center border border-slate-800 w-24">น้ำหนักก๊าซ (กก.)</th>
+                    <th className="py-1.5 px-2 text-right border border-slate-800 w-32">ยอดเงินรวม (บาท)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="py-1.5 px-2 font-semibold text-emerald-900 border border-gray-200">
+                      1. ยอดขายออกใบกำกับภาษี (Tax Invoice Sales)
+                    </td>
+                    <td className="py-1.5 px-2 text-center border border-gray-200">
+                      {metrics.taxComparison.taxSales.billsCount}
+                    </td>
+                    <td className="py-1.5 px-2 text-center font-bold text-emerald-700 border border-gray-200">
+                      {metrics.taxComparison.taxSales.tanksCount} ถัง
+                    </td>
+                    <td className="py-1.5 px-2 text-center border border-gray-200">
+                      {metrics.taxComparison.taxSales.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-bold text-emerald-800 border border-gray-200">
+                      {metrics.taxComparison.taxSales.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="bg-gray-50">
+                    <td className="py-1.5 px-2 font-semibold text-blue-900 border border-gray-200">
+                      2. ยอดซื้อเติมแก๊สเครดิต (Credit Gas Refills at Plant)
+                    </td>
+                    <td className="py-1.5 px-2 text-center border border-gray-200">
+                      {metrics.taxComparison.creditRefill.billsCount}
+                    </td>
+                    <td className="py-1.5 px-2 text-center font-bold text-blue-700 border border-gray-200">
+                      {metrics.taxComparison.creditRefill.tanksCount} ถัง
+                    </td>
+                    <td className="py-1.5 px-2 text-center border border-gray-200">
+                      {metrics.taxComparison.creditRefill.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-bold text-blue-800 border border-gray-200">
+                      {metrics.taxComparison.creditRefill.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 font-bold border-t-2 border-slate-600 text-slate-900">
+                    <td className="py-2 px-2 text-left">
+                      ส่วนต่างเปรียบเทียบ (ยอดขายใบกำกับ - ยอดเติมเครดิต):
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      {metrics.taxComparison.difference.billsCount > 0 ? '+' : ''}{metrics.taxComparison.difference.billsCount}
+                    </td>
+                    <td className={`py-2 px-2 text-center ${metrics.taxComparison.difference.tanksCount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {metrics.taxComparison.difference.tanksCount > 0 ? '+' : ''}{metrics.taxComparison.difference.tanksCount} ถัง
+                    </td>
+                    <td className={`py-2 px-2 text-center ${metrics.taxComparison.difference.weightKg >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {metrics.taxComparison.difference.weightKg > 0 ? '+' : ''}{metrics.taxComparison.difference.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })}
+                    </td>
+                    <td className={`py-2 px-2 text-right text-sm font-bold ${metrics.taxComparison.difference.totalAmount >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>
+                      {metrics.taxComparison.difference.totalAmount > 0 ? '+' : ''}{metrics.taxComparison.difference.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
 
         </div>
 

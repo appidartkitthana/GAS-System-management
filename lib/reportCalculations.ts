@@ -79,6 +79,29 @@ export interface RefillPlantSummary {
   totalCost: number;
 }
 
+export interface TaxComparisonSummary {
+  taxSales: {
+    billsCount: number;
+    tanksCount: number;
+    weightKg: number;
+    totalAmount: number;
+  };
+  creditRefill: {
+    billsCount: number;
+    tanksCount: number;
+    weightKg: number;
+    totalAmount: number;
+  };
+  difference: {
+    billsCount: number;
+    tanksCount: number;
+    weightKg: number;
+    totalAmount: number;
+  };
+  status: 'SAFE' | 'EQUAL' | 'WARNING';
+  statusLabel: string;
+}
+
 export interface CalculatedReportData {
   startDate: string;
   endDate: string;
@@ -91,8 +114,12 @@ export interface CalculatedReportData {
   totalAccessoriesSold: number; // SUM(จำนวนอุปกรณ์)
   totalItemsSold: number; // SUM(จำนวนสินค้าทั้งหมด)
   totalGasWeightKg: number; // SUM(กิโลกรัม)
-  totalGasReturnKg: number; // SUM(กิโลกรัมคืน)
-  totalGasReturnValue: number; // SUM(มูลค่าคืนแก๊ส)
+  totalGasReturnKg: number; // SUM(กิโลกรัมคืน - ลูกค้า)
+  totalGasReturnValue: number; // SUM(มูลค่าคืนแก๊ส - ลูกค้า)
+  customerGasReturnKg: number;
+  customerGasReturnValue: number;
+  plantGasReturnKg: number;
+  plantGasReturnValue: number;
   totalBorrowedTanks: number; // ถังยืมคงค้าง
   totalSalesBills: number; // SUM(บิลขาย)
   totalExpenseRecords: number; // SUM(รายการจ่าย)
@@ -107,6 +134,8 @@ export interface CalculatedReportData {
   totalRefillWeightKg: number;
   totalRefillAmount: number;
   totalOtherExpenses: number;
+  // Tax & Refill Comparison
+  taxComparison: TaxComparisonSummary;
   // Breakdown lists
   dailyRows: DayAggregation[];
   customerSummaries: CustomerSalesSummary[];
@@ -168,6 +197,12 @@ export function calculateReportMetrics(
   let transferIncome = 0;
   let creditIncome = 0;
 
+  // Tax Invoice sales accumulation
+  let taxInvoiceSalesAmount = 0;
+  let taxInvoiceBillsCount = 0;
+  let taxInvoiceTanks = 0;
+  let taxInvoiceWeightKg = 0;
+
   // Track customer maps
   const custMap = new Map<string, CustomerSalesSummary>();
   // Track product maps
@@ -182,6 +217,14 @@ export function calculateReportMetrics(
     else if (s.payment_method === PaymentMethod.TRANSFER) transferIncome += sAmount;
     else if (s.payment_method === PaymentMethod.CREDIT) creditIncome += sAmount;
 
+    const isCredit = s.payment_method === PaymentMethod.CREDIT;
+    const isTax = s.invoice_type === InvoiceType.TAX_INVOICE;
+
+    if (isTax) {
+      taxInvoiceBillsCount += 1;
+      taxInvoiceSalesAmount += sAmount;
+    }
+
     // Gas return
     const sReturnKg = s.gas_return_kg || 0;
     const sReturnPrice = s.gas_return_price || 0;
@@ -194,9 +237,6 @@ export function calculateReportMetrics(
     let saleTanks = 0;
     let saleAccessories = 0;
     let saleWeightKg = 0;
-
-    const isCredit = s.payment_method === PaymentMethod.CREDIT;
-    const isTax = s.invoice_type === InvoiceType.TAX_INVOICE;
 
     if (s.items && Array.isArray(s.items) && s.items.length > 0) {
       s.items.forEach(item => {
@@ -239,6 +279,11 @@ export function calculateReportMetrics(
           saleWeightKg += w;
           totalGasWeightKg += w;
 
+          if (isTax) {
+            taxInvoiceTanks += qty;
+            taxInvoiceWeightKg += w;
+          }
+
           // Product summary
           const key = `GAS_${item.brand}_${item.size}`;
           if (!prodMap.has(key)) {
@@ -276,6 +321,11 @@ export function calculateReportMetrics(
       const w = qty * getGasWeightKg(s.tank_size);
       saleWeightKg += w;
       totalGasWeightKg += w;
+
+      if (isTax) {
+        taxInvoiceTanks += qty;
+        taxInvoiceWeightKg += w;
+      }
 
       const key = `GAS_${s.tank_brand}_${s.tank_size}`;
       if (!prodMap.has(key)) {
@@ -353,6 +403,12 @@ export function calculateReportMetrics(
   let totalGasReturnKgExpenses = 0;
   let totalGasReturnValueExpenses = 0;
 
+  // Credit Refill Accumulation (for Tax comparison)
+  let creditRefillAmount = 0;
+  let creditRefillBillsCount = 0;
+  let creditRefillTanks = 0;
+  let creditRefillWeightKg = 0;
+
   const expTypeMap = new Map<string, ExpenseTypeSummary>();
   const refillMap = new Map<string, RefillPlantSummary>();
 
@@ -385,6 +441,11 @@ export function calculateReportMetrics(
       totalRefillBills += 1;
       totalRefillAmount += eAmount;
 
+      if (isCredit) {
+        creditRefillBillsCount += 1;
+        creditRefillAmount += eAmount;
+      }
+
       if (e.refill_details && Array.isArray(e.refill_details) && e.refill_details.length > 0) {
         e.refill_details.forEach(item => {
           const qty = item.quantity || 0;
@@ -392,6 +453,11 @@ export function calculateReportMetrics(
           totalRefillTanks += qty;
           totalRefillWeightKg += w;
           et.totalGasQty += qty;
+
+          if (isCredit) {
+            creditRefillTanks += qty;
+            creditRefillWeightKg += w;
+          }
 
           const key = `${item.brand} ${item.size}`;
           if (!refillMap.has(key)) {
@@ -422,6 +488,11 @@ export function calculateReportMetrics(
         totalRefillWeightKg += w;
         et.totalGasQty += qty;
 
+        if (isCredit) {
+          creditRefillTanks += qty;
+          creditRefillWeightKg += w;
+        }
+
         const key = `${brand} ${size}`;
         if (!refillMap.has(key)) {
           refillMap.set(key, {
@@ -450,8 +521,59 @@ export function calculateReportMetrics(
     if (e.gas_return_amount) totalGasReturnValueExpenses += e.gas_return_amount;
   });
 
-  const totalGasReturnKg = totalGasReturnKgExpenses || totalGasReturnKgSales;
-  const totalGasReturnValue = totalGasReturnValueExpenses || totalGasReturnValueSales;
+  // Customer vs Plant gas returns
+  const customerGasReturnKg = totalGasReturnKgSales;
+  const customerGasReturnValue = totalGasReturnValueSales;
+  const plantGasReturnKg = totalGasReturnKgExpenses;
+  const plantGasReturnValue = totalGasReturnValueExpenses;
+  const totalGasReturnKg = customerGasReturnKg > 0 ? customerGasReturnKg : plantGasReturnKg;
+  const totalGasReturnValue = customerGasReturnValue > 0 ? customerGasReturnValue : plantGasReturnValue;
+
+  // Build Tax Comparison Summary
+  const diffBills = taxInvoiceBillsCount - creditRefillBillsCount;
+  const diffTanks = taxInvoiceTanks - creditRefillTanks;
+  const diffWeightKg = taxInvoiceWeightKg - creditRefillWeightKg;
+  const diffAmount = taxInvoiceSalesAmount - creditRefillAmount;
+
+  let taxStatus: 'SAFE' | 'EQUAL' | 'WARNING' = 'SAFE';
+  let taxStatusLabel = 'ยอดขายใบกำกับภาษี ครอบคลุมยอดซื้อเติมแก๊สเครดิต (ปกติ)';
+
+  if (taxInvoiceSalesAmount === 0 && creditRefillAmount === 0) {
+    taxStatus = 'EQUAL';
+    taxStatusLabel = 'ไม่มีรายการใบกำกับภาษีและเติมแก๊สเครดิตในช่วงนี้';
+  } else if (Math.abs(diffAmount) < 0.01 && Math.abs(diffWeightKg) < 0.01) {
+    taxStatus = 'EQUAL';
+    taxStatusLabel = 'ยอดขายใบกำกับภาษี เท่ากับยอดซื้อเติมแก๊สเครดิตพอดี';
+  } else if (taxInvoiceSalesAmount < creditRefillAmount || taxInvoiceWeightKg < creditRefillWeightKg) {
+    taxStatus = 'WARNING';
+    taxStatusLabel = 'ยอดซื้อเติมแก๊สเครดิต สูงกว่ายอดขายใบกำกับภาษี (ควรตรวจสอบ)';
+  } else {
+    taxStatus = 'SAFE';
+    taxStatusLabel = 'ยอดขายใบกำกับภาษี ครอบคลุมยอดซื้อเติมแก๊สเครดิต (ปกติ)';
+  }
+
+  const taxComparison: TaxComparisonSummary = {
+    taxSales: {
+      billsCount: taxInvoiceBillsCount,
+      tanksCount: taxInvoiceTanks,
+      weightKg: taxInvoiceWeightKg,
+      totalAmount: taxInvoiceSalesAmount,
+    },
+    creditRefill: {
+      billsCount: creditRefillBillsCount,
+      tanksCount: creditRefillTanks,
+      weightKg: creditRefillWeightKg,
+      totalAmount: creditRefillAmount,
+    },
+    difference: {
+      billsCount: diffBills,
+      tanksCount: diffTanks,
+      weightKg: diffWeightKg,
+      totalAmount: diffAmount,
+    },
+    status: taxStatus,
+    statusLabel: taxStatusLabel,
+  };
 
   // 4. Borrowed tanks on loan
   const totalBorrowedTanks = (inventory || []).reduce((sum, item) => sum + (item.on_loan || 0), 0) ||
@@ -605,7 +727,12 @@ export function calculateReportMetrics(
     totalRefillTanks,
     totalRefillWeightKg,
     totalRefillAmount,
+    customerGasReturnKg,
+    customerGasReturnValue,
+    plantGasReturnKg,
+    plantGasReturnValue,
     totalOtherExpenses,
+    taxComparison,
     dailyRows,
     customerSummaries: Array.from(custMap.values()).sort((a, b) => b.totalAmount - a.totalAmount),
     productSummaries: Array.from(prodMap.values()).sort((a, b) => b.quantity - a.quantity),

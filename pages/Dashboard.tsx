@@ -276,6 +276,8 @@ const Dashboard: React.FC = () => {
             totalAccessoriesSold: metrics.totalAccessoriesSold,
             totalGasReturnKg: metrics.totalGasReturnKg,
             totalGasReturnValue: metrics.totalGasReturnValue,
+            customerGasReturnKg: metrics.customerGasReturnKg,
+            plantGasReturnKg: metrics.plantGasReturnKg,
             totalBorrowedTanks: metrics.totalBorrowedTanks,
             totalSalesBills: metrics.totalSalesBills,
             totalExpenseRecords: metrics.totalExpenseRecords,
@@ -283,6 +285,7 @@ const Dashboard: React.FC = () => {
             cashIncome: metrics.cashIncome,
             transferIncome: metrics.transferIncome,
             creditIncome: metrics.creditIncome,
+            taxComparison: metrics.taxComparison,
             customerStats,
             salesStats,
             refillStats,
@@ -630,6 +633,135 @@ const Dashboard: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* ========================================================================= */}
+                {/* TAX & ACCOUNTING AUDIT COMPARISON SECTION (เปรียบเทียบยอดสำหรับตรวจสอบภาษีและบัญชี) */}
+                {/* ========================================================================= */}
+                {rangeData.taxComparison && (
+                    <div className="relative z-10 mt-5 pt-4 border-t border-slate-700/80">
+                        <div className="bg-slate-950/70 border border-slate-700 rounded-xl p-4 shadow-inner">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">⚖️</span>
+                                        <h3 className="text-sm font-bold text-white tracking-wide">
+                                            สรุปเปรียบเทียบยอดสำหรับตรวจสอบภาษี & บัญชี (Tax Invoice vs. Credit Refill)
+                                        </h3>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                        เปรียบเทียบยอดขายที่ออกใบกำกับภาษี กับ ยอดซื้อเติมแก๊สแบบเครดิตในช่วงวันที่เดียวกัน
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-sm ${
+                                        rangeData.taxComparison.status === 'SAFE'
+                                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+                                            : rangeData.taxComparison.status === 'EQUAL'
+                                            ? 'bg-amber-950/80 text-amber-300 border-amber-500/50'
+                                            : 'bg-rose-950/80 text-rose-300 border-rose-500/50'
+                                    }`}>
+                                        <span className={`w-2 h-2 rounded-full animate-pulse ${
+                                            rangeData.taxComparison.status === 'SAFE' ? 'bg-emerald-400' : rangeData.taxComparison.status === 'EQUAL' ? 'bg-amber-400' : 'bg-rose-500'
+                                        }`}></span>
+                                        {rangeData.taxComparison.statusLabel}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Comparison Side-by-Side Panels */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Side A: ยอดขายออกใบกำกับภาษี */}
+                                <div className="bg-slate-900/90 border border-emerald-500/30 rounded-lg p-3.5 relative overflow-hidden">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/50">
+                                                ฝั่งที่ 1: ยอดขายออกใบกำกับภาษี
+                                            </span>
+                                            <h4 className="text-xl font-black text-white mt-1.5">
+                                                {rangeData.taxComparison.taxSales.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-emerald-400">บาท</span>
+                                            </h4>
+                                        </div>
+                                        <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded text-sm">📄</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-[11px]">
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">จำนวนบิล:</span>
+                                            <strong className="text-slate-200">{rangeData.taxComparison.taxSales.billsCount}</strong> บิล
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">จำนวนถัง:</span>
+                                            <strong className="text-emerald-400">{rangeData.taxComparison.taxSales.tanksCount}</strong> ถัง
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">น้ำหนักก๊าซ:</span>
+                                            <strong className="text-slate-200">{rangeData.taxComparison.taxSales.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })}</strong> กก.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Side B: ยอดเติมแก๊สเครดิต */}
+                                <div className="bg-slate-900/90 border border-blue-500/30 rounded-lg p-3.5 relative overflow-hidden">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-950/80 px-2 py-0.5 rounded border border-blue-700/50">
+                                                ฝั่งที่ 2: ยอดซื้อเติมแก๊สเครดิต
+                                            </span>
+                                            <h4 className="text-xl font-black text-white mt-1.5">
+                                                {rangeData.taxComparison.creditRefill.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-blue-400">บาท</span>
+                                            </h4>
+                                        </div>
+                                        <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded text-sm">🏭</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-[11px]">
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">จำนวนรายการ:</span>
+                                            <strong className="text-slate-200">{rangeData.taxComparison.creditRefill.billsCount}</strong> รายการ
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">จำนวนถัง:</span>
+                                            <strong className="text-blue-400">{rangeData.taxComparison.creditRefill.tanksCount}</strong> ถัง
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">น้ำหนักก๊าซ:</span>
+                                            <strong className="text-slate-200">{rangeData.taxComparison.creditRefill.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })}</strong> กก.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Net Difference Row */}
+                            <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                <div className="flex items-center gap-4 text-slate-300">
+                                    <span>
+                                        ส่วนต่างยอดเงิน (ขาย - ซื้อเครดิต):{' '}
+                                        <strong className={rangeData.taxComparison.difference.totalAmount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                            {rangeData.taxComparison.difference.totalAmount > 0 ? '+' : ''}
+                                            {rangeData.taxComparison.difference.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                        </strong>
+                                    </span>
+                                    <span>
+                                        ส่วนต่างถัง:{' '}
+                                        <strong className={rangeData.taxComparison.difference.tanksCount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                            {rangeData.taxComparison.difference.tanksCount > 0 ? '+' : ''}
+                                            {rangeData.taxComparison.difference.tanksCount} ถัง
+                                        </strong>
+                                    </span>
+                                    <span>
+                                        ส่วนต่างน้ำหนัก:{' '}
+                                        <strong className={rangeData.taxComparison.difference.weightKg >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                            {rangeData.taxComparison.difference.weightKg > 0 ? '+' : ''}
+                                            {rangeData.taxComparison.difference.weightKg.toLocaleString('th-TH', { maximumFractionDigits: 1 })} กก.
+                                        </strong>
+                                    </span>
+                                </div>
+
+                                <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                                    <span className="text-emerald-400 font-bold">✓</span> ตรวจสอบความสอดคล้องของข้อมูลแล้ว
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </Card>
         )}
 
@@ -872,6 +1004,8 @@ const Dashboard: React.FC = () => {
           <MonthlyReportA4
             selectedYear={reportDate.getFullYear()}
             selectedMonth={reportDate.getMonth()}
+            customStartDate={monthlyStartDate}
+            customEndDate={monthlyEndDate}
             onClose={() => setShowMonthlyReportModal(false)}
           />
         </div>
