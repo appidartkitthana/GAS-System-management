@@ -649,9 +649,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           totalProfit: c.profit
       }));
 
-      // Gas Return
-      const gasReturnKg = monthExpenses.reduce((acc, e) => acc + (e.gas_return_kg || 0), 0);
-      const gasReturnValue = monthExpenses.reduce((acc, e) => acc + (e.gas_return_amount || 0), 0);
+      // Gas Return (from plant refill expenses)
+      const gasReturnKg = monthExpenses.reduce((acc, e) => acc + (Number(e.gas_return_kg) || 0), 0);
+      const gasReturnValue = monthExpenses.reduce((acc, e) => acc + (Number(e.gas_return_amount) || 0), 0);
 
       // Refill Stats with Cash/Credit Split (Expenses)
       const refillMap = new Map<string, RefillSummary>();

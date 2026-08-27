@@ -526,8 +526,8 @@ export function calculateReportMetrics(
   const customerGasReturnValue = totalGasReturnValueSales;
   const plantGasReturnKg = totalGasReturnKgExpenses;
   const plantGasReturnValue = totalGasReturnValueExpenses;
-  const totalGasReturnKg = customerGasReturnKg > 0 ? customerGasReturnKg : plantGasReturnKg;
-  const totalGasReturnValue = customerGasReturnValue > 0 ? customerGasReturnValue : plantGasReturnValue;
+  const totalGasReturnKg = plantGasReturnKg;
+  const totalGasReturnValue = plantGasReturnValue;
 
   // Build Tax Comparison Summary
   const diffBills = taxInvoiceBillsCount - creditRefillBillsCount;
@@ -607,10 +607,7 @@ export function calculateReportMetrics(
       const sAmt = s.total_amount || 0;
       daySalesTotal += sAmt;
 
-      const rKg = s.gas_return_kg || 0;
       const rVal = (s.gas_return_kg || 0) * (s.gas_return_price || 0);
-      dayGasReturnKg += rKg;
-      dayGasReturnValue += rVal;
 
       let saleProfit = 0;
       if (s.items && Array.isArray(s.items) && s.items.length > 0) {
@@ -677,6 +674,16 @@ export function calculateReportMetrics(
     );
     const dayOtherTotal = dayOtherExpensesList.reduce((sum, e) => sum + (e.amount || 0), 0);
     const dayAllExpensesTotal = dayRefillTotal + dayOtherTotal;
+
+    // Sum gas return from plant refill expenses on this day
+    dayExpenses.forEach(e => {
+      if (e.gas_return_kg) {
+        dayGasReturnKg += Number(e.gas_return_kg) || 0;
+      }
+      if (e.gas_return_amount) {
+        dayGasReturnValue += Number(e.gas_return_amount) || 0;
+      }
+    });
 
     return {
       dateStr,

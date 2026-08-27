@@ -267,7 +267,9 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                       <td className="py-1.5 px-2 border border-gray-200 text-gray-600">{c.branch}</td>
                       <td className="py-1.5 px-2 text-center border border-gray-200">{c.salesCount} บิล</td>
                       <td className="py-1.5 px-2 text-center font-bold text-sky-700 border border-gray-200">{c.totalTanks} ถัง</td>
-                      <td className="py-1.5 px-2 text-center text-blue-600 border border-gray-200">{c.totalGasReturnKg || '-'}</td>
+                      <td className="py-1.5 px-2 text-center text-blue-600 border border-gray-200">
+                        {c.totalGasReturnKg > 0 ? `${c.totalGasReturnKg.toFixed(2)} กก.` : '-'}
+                      </td>
                       <td className="py-1.5 px-2 text-right font-bold text-gray-900 border border-gray-200">
                         {c.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </td>
@@ -285,7 +287,7 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                   <td className="py-2 px-2 text-center">{monthlySales.length} บิล</td>
                   <td className="py-2 px-2 text-center font-bold text-sky-900">{totalCylindersDelivered} ถัง</td>
                   <td className="py-2 px-2 text-center text-blue-800">
-                    {monthlySales.reduce((sum, s) => sum + (s.gas_return_kg || 0), 0)} กก.
+                    {metrics.customerGasReturnKg > 0 ? `${metrics.customerGasReturnKg.toFixed(2)} กก.` : (metrics.totalGasReturnKg > 0 ? `${metrics.totalGasReturnKg.toFixed(2)} กก.` : '-')}
                   </td>
                   <td className="py-2 px-2 text-right text-sm font-bold text-emerald-800">
                     {totalIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
@@ -356,7 +358,7 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                   <th className="py-1.5 px-2 text-center border border-amber-800 w-20">วันที่เติม</th>
                   <th className="py-1.5 px-2 text-left border border-amber-800">โรงบรรจุแก๊ส / ผู้รับเงิน</th>
                   <th className="py-1.5 px-2 text-left border border-amber-800">รายการเติมถัง</th>
-                  <th className="py-1.5 px-2 text-right border border-amber-800 w-24">คืนเนื้อแก๊ส (บาท)</th>
+                  <th className="py-1.5 px-2 text-right border border-amber-800 w-28">คืนเนื้อแก๊ส (กก./บาท)</th>
                   <th className="py-1.5 px-2 text-right border border-amber-800 w-28">ค่าเติมสุทธิ (บาท)</th>
                 </tr>
               </thead>
@@ -376,7 +378,12 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                           <td className="py-1.5 px-2 font-bold text-gray-800 border border-gray-200">{e.payee || '-'}</td>
                           <td className="py-1.5 px-2 text-gray-700 border border-gray-200">{refillDesc}</td>
                           <td className="py-1.5 px-2 text-right text-emerald-700 font-semibold border border-gray-200">
-                            {e.gas_return_amount ? `${e.gas_return_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '-'}
+                            {e.gas_return_kg ? (
+                              <div>
+                                <span className="font-bold">{e.gas_return_kg} กก.</span>
+                                {e.gas_return_amount ? <span className="text-[9px] text-gray-500 block">({e.gas_return_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿)</span> : null}
+                              </div>
+                            ) : (e.gas_return_amount ? `${e.gas_return_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿` : '-')}
                           </td>
                           <td className="py-1.5 px-2 text-right font-bold text-gray-900 border border-gray-200">
                             {e.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
@@ -390,6 +397,17 @@ const MonthlyReportA4: React.FC<MonthlyReportA4Props> = ({
                   </tr>
                 )}
               </tbody>
+              <tfoot>
+                <tr className="bg-amber-100 font-bold border-t-2 border-amber-700 text-amber-950">
+                  <td colSpan={4} className="py-2 px-2 text-right">รวมการเติมแก๊สเข้าโรงบรรจุ:</td>
+                  <td className="py-2 px-2 text-right text-emerald-800 font-bold">
+                    {metrics.plantGasReturnKg > 0 ? `${metrics.plantGasReturnKg.toFixed(2)} กก.` : '-'}
+                  </td>
+                  <td className="py-2 px-2 text-right text-rose-800 font-bold">
+                    {metrics.totalRefillAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 

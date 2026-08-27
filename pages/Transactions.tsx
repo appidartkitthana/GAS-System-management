@@ -16,6 +16,10 @@ import Invoice from '../components/Invoice';
 import InvoiceA4 from '../components/InvoiceA4';
 import DeliveryNoteA4 from '../components/DeliveryNoteA4';
 import ExpenseReceipt from '../components/ExpenseReceipt';
+import ExpenseTableView from '../components/ExpenseTableView';
+import ExpenseDetailModal from '../components/ExpenseDetailModal';
+import SaleTableView from '../components/SaleTableView';
+import SaleDetailModal from '../components/SaleDetailModal';
 import { Sale, Expense, PaymentMethod, ExpenseType, Brand, Size, InvoiceType, VatType, RefillItem, SaleItem, InventoryCategory, Customer } from '../types';
 import { formatDateForInput, getGasWeightKg, generateRunningNumber, getCustomerPriceForItem, calculateVatBreakdown } from '../lib/utils';
 import Settings from './Settings';
@@ -96,20 +100,6 @@ const SaleForm: React.FC<{ sale: Sale | null; onSave: (data: Sale | Omit<Sale, '
             setFormData(prev => ({ ...prev, invoice_number: generatedNum }));
         }
     }, [formData.invoice_type, formData.date, sale, sales]);
-
-    // Auto calculate gas weight (kg) from items
-    useEffect(() => {
-        const totalGasKg = items.reduce((acc, item) => {
-            if (item.item_type === 'GAS') {
-                return acc + (item.quantity * getGasWeightKg(item.size));
-            }
-            return acc;
-        }, 0);
-
-        if (totalGasKg > 0) {
-            setFormData(prev => ({ ...prev, gas_return_kg: totalGasKg.toString() }));
-        }
-    }, [items]);
 
     /**
      * 3.1 Strict Customer Price Recalculation
@@ -830,9 +820,11 @@ const DeliveryNoteMenu: React.FC<{
 
 const Transactions: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'sales' | 'expenses'>('sales');
-  const { sales, expenses, getCustomerById, addSale, updateSale, deleteSale, addExpense, updateExpense, deleteExpense } = useAppContext();
+  const { sales, expenses, expenseTypes, getCustomerById, addSale, updateSale, deleteSale, addExpense, updateExpense, deleteExpense } = useAppContext();
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Sale | Expense | null>(null);
+  const [viewingExpenseDetail, setViewingExpenseDetail] = useState<Expense | null>(null);
+  const [viewingSaleDetail, setViewingSaleDetail] = useState<Sale | null>(null);
   const [receiptData, setReceiptData] = useState<Sale | Expense | null>(null);
   const [receiptA4Data, setReceiptA4Data] = useState<Sale | null>(null);
   const [deliveryNoteData, setDeliveryNoteData] = useState<{ sale: Sale; defaultWithPrice: boolean } | null>(null);
@@ -880,102 +872,28 @@ const Transactions: React.FC = () => {
       handleCloseFormModal();
   };
 
-  const getPaymentMethodClass = (method: PaymentMethod) => {
-    switch (method) {
-      case PaymentMethod.CASH: return 'bg-lime-100 text-lime-700';
-      case PaymentMethod.TRANSFER: return 'bg-purple-100 text-purple-700';
-      case PaymentMethod.CREDIT: return 'bg-blue-100 text-blue-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
-
-
   const renderSales = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {sales.map((sale: Sale) => {
-            const customer = getCustomerById(sale.customer_id);
-            const customerDisplay = customer ? `${customer.name} ${customer.branch ? '(' + customer.branch + ')' : ''}` : 'ลูกค้าทั่วไป';
-            
-            return (
-                <Card key={sale.id} className="!p-0">
-                    <div className="p-4">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <p className="font-semibold pr-4">{customerDisplay}</p>
-                                <div className="text-sm text-gray-500 mt-1">
-                                    {sale.items && sale.items.length > 0 ? (
-                                        sale.items.map((item, idx) => (
-                                            <div key={idx}>• {item.quantity} x {item.brand} {item.size}</div>
-                                        ))
-                                    ) : (
-                                        <div>{sale.quantity} x {sale.tank_brand} {sale.tank_size}</div>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${getPaymentMethodClass(sale.payment_method)}`}>{sale.payment_method}</span>
-                                    {sale.vat_type === VatType.INCLUDED && (
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">รวม VAT</span>
-                                    )}
-                                    {sale.vat_type === VatType.EXCLUDED && (
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">ก่อน VAT (+7%)</span>
-                                    )}
-                                    {sale.vat_type === VatType.NO_VAT && (
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">ไม่มี VAT</span>
-                                    )}
-                                    {sale.gas_return_kg && <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-medium">กำไรแก๊ส: {sale.gas_return_kg} กก.</span>}
-                                </div>
-                                <p className="text-xs text-gray-400 mt-1">{new Date(sale.date).toLocaleDateString('th-TH')} - {sale.invoice_number}</p>
-                            </div>
-                            <p className="text-lg font-bold text-green-600 whitespace-nowrap">+{sale.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿</p>
-                        </div>
-                    </div>
-                    <div className="bg-slate-50/70 px-4 py-2.5 flex flex-wrap justify-end gap-2 items-center border-t border-slate-200/80">
-                        <DeliveryNoteMenu 
-                            onSelect={(defaultWithPrice) => setDeliveryNoteData({ sale, defaultWithPrice })} 
-                        />
-
-                        <div className="h-4 w-px bg-gray-300 mx-1"></div>
-
-                        <button onClick={() => handleOpenReceiptA4Modal(sale)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="พิมพ์ใบกำกับภาษี/ใบเสร็จ A4"><DocumentIcon /></button>
-                        <button onClick={() => handleOpenReceiptModal(sale)} className="p-1 text-sky-600 hover:bg-sky-50 rounded" title="พิมพ์ใบเสร็จย่อ 80mm"><PrinterIcon /></button>
-                        <button onClick={() => handleOpenFormModal(sale)} className="p-1 text-gray-500 hover:text-sky-500" title="แก้ไข"><PencilIcon /></button>
-                        <button onClick={() => deleteSale(sale.id)} className="p-1 text-gray-400 hover:text-red-500" title="ลบ"><TrashIcon /></button>
-                    </div>
-                </Card>
-            );
-        })}
-    </div>
+    <SaleTableView
+      sales={sales}
+      getCustomerById={getCustomerById}
+      onViewDetails={(sale) => setViewingSaleDetail(sale)}
+      onPrintA4={(sale) => handleOpenReceiptA4Modal(sale)}
+      onPrintSlip={(sale) => handleOpenReceiptModal(sale)}
+      onPrintDeliveryNote={(sale, defaultWithPrice) => setDeliveryNoteData({ sale, defaultWithPrice })}
+      onEdit={(sale) => handleOpenFormModal(sale)}
+      onDelete={(saleId) => deleteSale(saleId)}
+    />
   );
 
   const renderExpenses = () => (
-     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {expenses.map((expense: Expense) => (
-            <Card key={expense.id} className="!p-0">
-                <div className="p-4">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className="font-semibold pr-4">{expense.type}</p>
-                            <p className="text-sm text-gray-500">{expense.description} {expense.payee && `(${expense.payee})`}</p>
-                             {expense.refill_details && expense.refill_details.length > 0 && (
-                                <div className="mt-1">
-                                    {expense.refill_details.map((item, idx) => (
-                                        <span key={idx} className="text-xs bg-gray-100 px-1 rounded mr-1">{item.quantity}x {item.size}</span>
-                                    ))}
-                                </div>
-                            )}
-                            <p className="text-xs text-gray-400 mt-1">{new Date(expense.date).toLocaleDateString('th-TH')} - {expense.payment_method}</p>
-                        </div>
-                        <p className="text-lg font-bold text-red-600 whitespace-nowrap">-{expense.amount.toLocaleString('th-TH')} ฿</p>
-                    </div>
-                </div>
-                <div className="bg-slate-50/70 px-4 py-2 flex justify-end space-x-3 items-center border-t border-slate-200/80">
-                    <button onClick={() => handleOpenReceiptModal(expense)} className="text-gray-500 hover:text-sky-500"><PrinterIcon /></button>
-                    <button onClick={() => handleOpenFormModal(expense)} className="text-gray-500 hover:text-sky-500"><PencilIcon /></button>
-                    <button onClick={() => deleteExpense(expense.id)} className="text-gray-500 hover:text-red-500"><TrashIcon /></button>
-                </div>
-            </Card>
-        ))}
-     </div>
+    <ExpenseTableView
+      expenses={expenses}
+      expenseTypes={expenseTypes}
+      onViewDetails={(expense) => setViewingExpenseDetail(expense)}
+      onPrint={(expense) => handleOpenReceiptModal(expense)}
+      onEdit={(expense) => handleOpenFormModal(expense)}
+      onDelete={(expenseId) => deleteExpense(expenseId)}
+    />
   );
 
   const getFormModalTitle = () => {
@@ -1003,6 +921,29 @@ const Transactions: React.FC = () => {
         </div>
 
       {activeTab === 'sales' ? renderSales() : renderExpenses()}
+
+      {/* Sale Detail Modal */}
+      <SaleDetailModal
+        sale={viewingSaleDetail}
+        customer={viewingSaleDetail ? getCustomerById(viewingSaleDetail.customer_id) : undefined}
+        isOpen={!!viewingSaleDetail}
+        onClose={() => setViewingSaleDetail(null)}
+        onEdit={(sale) => handleOpenFormModal(sale)}
+        onPrintA4={(sale) => handleOpenReceiptA4Modal(sale)}
+        onPrintSlip={(sale) => handleOpenReceiptModal(sale)}
+        onPrintDeliveryNote={(sale, defaultWithPrice) => setDeliveryNoteData({ sale, defaultWithPrice })}
+        onDelete={(saleId) => deleteSale(saleId)}
+      />
+
+      {/* Expense Detail Modal */}
+      <ExpenseDetailModal
+        expense={viewingExpenseDetail}
+        isOpen={!!viewingExpenseDetail}
+        onClose={() => setViewingExpenseDetail(null)}
+        onEdit={(expense) => handleOpenFormModal(expense)}
+        onPrint={(expense) => handleOpenReceiptModal(expense)}
+        onDelete={(expenseId) => deleteExpense(expenseId)}
+      />
 
       <Modal isOpen={isFormModalOpen} onClose={handleCloseFormModal} title={getFormModalTitle()}>
         {activeTab === 'sales' 
